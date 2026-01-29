@@ -27,18 +27,26 @@ export default function LoginPage() {
 
   const handleEmailSignIn = async () => {
     setLoading(true);
+    // 使用當前域名作為 callback URL，支持所有環境
+    const callbackUrl = typeof window !== 'undefined' 
+      ? `${window.location.origin}/`
+      : '/';
     const res = await signIn('email', {
       email,
       redirect: false,
-      callbackUrl: 'https://assignment-terminator-indol.vercel.app/',
+      callbackUrl,
     });
     res?.ok ? showSuccess('email') : showError('email');
     setLoading(false);
   };
 
   const handleGoogleSignIn = () => {
+    // 使用當前域名作為 callback URL，支持所有環境
+    const callbackUrl = typeof window !== 'undefined' 
+      ? `${window.location.origin}/`
+      : '/';
     signIn('google', {
-      callbackUrl: 'https://assignment-terminator-indol.vercel.app/',
+      callbackUrl,
     });
   };
 

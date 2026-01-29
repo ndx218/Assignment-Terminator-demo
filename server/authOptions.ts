@@ -10,8 +10,8 @@ import type { UserRole } from '@/types/next-auth';
 export const authOptions: NextAuthOptions = {
   providers: [
     GoogleProvider({
-      clientId: process.env.GOOGLE_CLIENT_ID || '',
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
+      clientId: process.env.GOOGLE_ID || process.env.GOOGLE_CLIENT_ID || '',
+      clientSecret: process.env.GOOGLE_SECRET || process.env.GOOGLE_CLIENT_SECRET || '',
     }),
     EmailProvider({
       server: {
@@ -39,16 +39,19 @@ export const authOptions: NextAuthOptions = {
     updateAge: 30 * 24 * 60 * 60,
   },
 
-  useSecureCookies: true,
+  // 在開發環境使用 HTTP，生產環境使用 HTTPS
+  useSecureCookies: process.env.NODE_ENV === 'production',
 
   cookies: {
     sessionToken: {
-      name: '__Secure-next-auth.session-token',
+      name: process.env.NODE_ENV === 'production' 
+        ? '__Secure-next-auth.session-token' 
+        : 'next-auth.session-token',
       options: {
         httpOnly: true,
         sameSite: 'lax',
         path: '/',
-        secure: true,
+        secure: process.env.NODE_ENV === 'production',
       },
     },
   },

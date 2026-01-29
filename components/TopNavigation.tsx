@@ -1,8 +1,9 @@
 "use client";
 
-import { useSession } from 'next-auth/react';
+import { useSession, signOut } from 'next-auth/react';
 import { Menu, User, CreditCard, X, Home, CreditCard as CreditCardIcon, HelpCircle, LogOut, Star } from 'lucide-react';
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 interface TopNavigationProps {
   onHamburgerClick?: () => void;
@@ -10,6 +11,7 @@ interface TopNavigationProps {
 
 export default function TopNavigation({ onHamburgerClick }: TopNavigationProps) {
   const { data: session } = useSession();
+  const router = useRouter();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const handleHamburgerClick = () => {
@@ -19,6 +21,19 @@ export default function TopNavigation({ onHamburgerClick }: TopNavigationProps) 
 
   const closeSidebar = () => {
     setIsSidebarOpen(false);
+  };
+
+  const handleLogout = async () => {
+    try {
+      localStorage.removeItem('skipLogin'); // 清除跳過登入 flag
+      await signOut({ redirect: false });   // 登出但不自動跳轉
+      closeSidebar(); // 關閉側邊欄
+      router.replace('/login');             // 手動跳轉到登入頁
+    } catch (error) {
+      console.error('[Logout Error]', error);
+      // 即使出錯也嘗試跳轉
+      router.replace('/login');
+    }
   };
 
   return (
@@ -117,8 +132,11 @@ export default function TopNavigation({ onHamburgerClick }: TopNavigationProps) 
 
               {/* Logout Button */}
               <div className="mt-6">
-                <button className="w-full flex items-center space-x-3 p-3 rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600 hover:text-white transition-colors border border-slate-600">
-                  <span>→</span>
+                <button 
+                  onClick={handleLogout}
+                  className="w-full flex items-center space-x-3 p-3 rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600 hover:text-white transition-colors border border-slate-600"
+                >
+                  <LogOut className="w-5 h-5" />
                   <span>登出</span>
                 </button>
               </div>

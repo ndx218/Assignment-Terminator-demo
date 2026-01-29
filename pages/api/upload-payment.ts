@@ -38,6 +38,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const name = fields.name?.toString() || '';
     const phone = fields.phone?.toString() || '';
     const referralCode = fields.referralCode?.toString() || '';
+    const paymentMethod = fields.paymentMethod?.toString() || 'alipay';
+    const packageType = fields.packageType?.toString() || '';
     const screenshot = files.screenshot as File;
 
     if (!name || !phone || !screenshot) {
@@ -65,6 +67,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       name,
       phone,
       referralCode,
+      paymentMethod,
+      packageType,
       imageUrl: result.secure_url,
     });
 
