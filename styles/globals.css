@@ -1,6 +1,4 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
 /* 自定義全域樣式（不與 Tailwind 衝突） */
 :root {
