@@ -4164,7 +4164,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
       <div className="pt-16 px-6" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #334155 100%)', backgroundAttachment: 'fixed' }}>
         <div className="flex" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #334155 100%)', backgroundAttachment: 'fixed' }}>
           {/* -------- 左：功課設定 -------- */}
-          <div className="w-96 border-r border-slate-600 p-4 bg-slate-800 min-h-screen overflow-y-auto">
+          <div className="w-96 border-r border-slate-600 p-4 bg-slate-800 min-h-screen overflow-y-auto" style={{ backgroundColor: '#1e293b' }}>
             <div className="bg-slate-700 rounded-lg shadow-lg p-4">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="font-bold text-lg bg-gradient-to-r from-amber-400 to-yellow-300 bg-clip-text text-transparent">功課設定</h2>
@@ -4494,7 +4494,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
           </div>
 
           {/* -------- 右：大綱產生器結果 -------- */}
-          <div className="flex-1 overflow-y-auto p-6 bg-slate-800 min-h-screen">
+          <div className="flex-1 overflow-y-auto p-6 bg-slate-800 min-h-screen" style={{ backgroundColor: '#1e293b' }}>
             <div className="bg-slate-700 rounded-lg shadow-sm p-6 border border-slate-600">
               <h2 className="text-xl font-bold mb-4 text-white">📝 文字產生區</h2>
               

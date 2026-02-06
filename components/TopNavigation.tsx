@@ -4,13 +4,15 @@ import { useSession, signOut } from 'next-auth/react';
 import { Menu, User, CreditCard, X, Home, CreditCard as CreditCardIcon, HelpCircle, LogOut, Star } from 'lucide-react';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useCredits } from '@/hooks/usePointStore';
 
 interface TopNavigationProps {
   onHamburgerClick?: () => void;
 }
 
 export default function TopNavigation({ onHamburgerClick }: TopNavigationProps) {
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
+  const credits = useCredits();
   const router = useRouter();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
@@ -66,16 +68,18 @@ export default function TopNavigation({ onHamburgerClick }: TopNavigationProps) 
 
           {/* 右侧：积分和用户信息 */}
           <div className="flex items-center space-x-6 pr-4">
-            <div className="flex items-center space-x-2 bg-amber-100 px-3 py-2 rounded-lg">
-              <CreditCard className="w-4 h-4 text-amber-600" />
-              <span className="text-amber-700 font-medium">
-                {session?.user?.credits || 259} 点
-              </span>
-            </div>
+            {status === 'authenticated' && (
+              <div className="flex items-center space-x-2 bg-amber-100 px-3 py-2 rounded-lg">
+                <CreditCard className="w-4 h-4 text-amber-600" />
+                <span className="text-amber-700 font-medium">
+                  {credits || session?.user?.credits || 0} 点
+                </span>
+              </div>
+            )}
             <div className="flex items-center space-x-2">
               <User className="w-5 h-5 text-white" />
               <span className="text-white font-medium">
-                {session?.user?.email || '用户'}
+                {status === 'authenticated' ? (session?.user?.email || '用户') : '未登入'}
               </span>
             </div>
           </div>
@@ -94,7 +98,7 @@ export default function TopNavigation({ onHamburgerClick }: TopNavigationProps) 
           {/* 侧边栏弹窗 */}
           <div className={`fixed left-0 top-0 h-full w-80 bg-slate-800 shadow-2xl z-40 transform transition-all duration-500 ease-in-out border-r-2 border-slate-600 ${
             isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
-          }`}>
+          }`} style={{ backgroundColor: '#1e293b' }}>
             <div className="p-6">
               {/* Header */}
               <div className="flex items-center justify-end mb-6 pb-4 border-b border-slate-600">
@@ -107,12 +111,14 @@ export default function TopNavigation({ onHamburgerClick }: TopNavigationProps) 
               </div>
 
               {/* User Info */}
-              <div className="mb-6 pb-4 border-b border-slate-600">
-                <div className="bg-green-100 text-green-700 px-4 py-2 rounded-full flex items-center space-x-2">
-                  <span>⭐</span>
-                  <span>積分 259</span>
+              {status === 'authenticated' && (
+                <div className="mb-6 pb-4 border-b border-slate-600">
+                  <div className="bg-green-100 text-green-700 px-4 py-2 rounded-full flex items-center space-x-2">
+                    <span>⭐</span>
+                    <span>積分 {credits || session?.user?.credits || 0}</span>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Navigation Items */}
               <div className="space-y-2 mb-6 pb-4 border-b border-slate-600">
