@@ -1,8 +1,9 @@
 // /pages/api/revision.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { callLLM, mapMode } from '@/lib/ai';
+import { deductCredits } from '@/lib/credits';
 
-type ResBody = { revision: { en: string, zh: string } } | { revision: string; revisionZh?: string } | { error: string };
+type ResBody = { revision: { en: string, zh: string }; remainingCredits?: number } | { revision: string; revisionZh?: string; remainingCredits?: number } | { error: string };
 
 function detectLang(text: string): 'zh' | 'en' {
   return /[\u4e00-\u9fff]/.test(text) ? 'zh' : 'en';
@@ -17,6 +18,9 @@ export default async function handler(
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Only POST requests are allowed' });
   }
+
+  const deduct = await deductCredits(req, res);
+  if (!deduct.ok) return;
 
   const {
     draftText,
@@ -268,6 +272,7 @@ Output format:
           en: revisionEn || revision || '',
           zh: revisionZh || revision || '',
         },
+        remainingCredits: deduct.remainingCredits,
       });
     }
 
@@ -279,6 +284,7 @@ Output format:
     
     return res.status(200).json({
       revision: singleLangResult,
+      remainingCredits: deduct.remainingCredits,
     });
   } catch (err: any) {
     const msg = String(err?.message ?? '');
@@ -302,6 +308,7 @@ Output format:
         );
         return res.status(200).json({
           revision: rev2 || (lang === 'zh' ? '⚠️ 修訂稿生成失敗' : '⚠️ Revision generation failed'),
+          remainingCredits: deduct.remainingCredits,
         });
       } catch (e: any) {
         console.error('[revision fallback failed]', e?.message);

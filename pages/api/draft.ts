@@ -3,9 +3,10 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { callLLM, mapMode } from '@/lib/ai';
 import { prisma } from '@/lib/prisma';
 import { getAuthSession } from '@/lib/auth';
+import { deductCredits } from '@/lib/credits';
 import { buildPrompt, validateParagraph, buildRepairPrompt, PRESET_SPECS, ParagraphSpec } from '@/lib/paragraphSpec';
 
-type ResBody = { draft: string; draftZh?: string } | { error: string };
+type ResBody = { draft: string; draftZh?: string; remainingCredits?: number } | { error: string };
 
 // ✅ 1) 止血版：检测和清理 ciphertext（gAAAAA...）
 function looksLikeFernet(s?: string | null): boolean {
@@ -31,6 +32,9 @@ export default async function handler(
   
   try {
     if (req.method !== 'POST') return res.status(405).json({ error: '只接受 POST 請求' });
+
+  const deduct = await deductCredits(req, res);
+  if (!deduct.ok) return;
 
   const session = await getAuthSession(req, res); // 讀取登入者（抓 DB 文獻用）
 
@@ -675,6 +679,7 @@ export default async function handler(
       return res.status(200).json({ 
         draft: text,
         draftZh: draftZh,
+        remainingCredits: deduct.remainingCredits,
       });
     } catch (specError: any) {
       // ✅ 处理 MODEL_RETURNED_CIPHERTEXT 错误
@@ -1359,7 +1364,7 @@ Text:
       });
     }
 
-    return res.status(200).json({ draft });
+    return res.status(200).json({ draft, remainingCredits: deduct.remainingCredits });
   } catch (err: any) {
     // ✅ 处理 MODEL_RETURNED_CIPHERTEXT 错误
     if (err?.message === 'MODEL_RETURNED_CIPHERTEXT') {
@@ -1450,6 +1455,7 @@ Text:
         return res.status(200).json({ 
           draft: draft2,
           draftZh: draft2Zh,
+          remainingCredits: deduct.remainingCredits,
         });
       } catch (fallbackError: any) {
         const errorMsg = isZH

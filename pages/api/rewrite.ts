@@ -1,11 +1,15 @@
 // /pages/api/rewrite.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { callLLM, mapMode } from '@/lib/ai';
+import { deductCredits } from '@/lib/credits';
 
-type ResBody = { result: string } | { error: string };
+type ResBody = { result: string; remainingCredits?: number } | { error: string };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<ResBody>) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Only POST requests are allowed' });
+
+  const deduct = await deductCredits(req, res);
+  if (!deduct.ok) return;
 
   const { text, mode = 'free' } = (req.body ?? {}) as Record<string, any>;
   if (typeof text !== 'string' || !text.trim()) {
@@ -23,7 +27,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       ],
       { ...llmOpts, title: process.env.OPENROUTER_TITLE ?? 'Assignment Terminator', referer: process.env.OPENROUTER_REFERER ?? process.env.NEXT_PUBLIC_APP_URL }
     );
-    return res.status(200).json({ result: rewritten || '⚠️ 重寫失敗' });
+    return res.status(200).json({ result: rewritten || '⚠️ 重寫失敗', remainingCredits: deduct.remainingCredits });
   } catch (err: any) {
     const msg = String(err?.message ?? '');
     if (msg.startsWith('OPENROUTER_HTTP_')) {
@@ -35,7 +39,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           ],
           { model: process.env.OPENROUTER_GPT35_MODEL ?? 'openai/gpt-3.5-turbo', temperature: 0.7, timeoutMs: 45_000, title: 'Rewrite Fallback', referer: process.env.NEXT_PUBLIC_APP_URL }
         );
-        return res.status(200).json({ result: rw2 || '⚠️ 重寫失敗' });
+        return res.status(200).json({ result: rw2 || '⚠️ 重寫失敗', remainingCredits: deduct.remainingCredits });
       } catch {}
     }
     console.error('[rewrite]', { mode, err: msg });

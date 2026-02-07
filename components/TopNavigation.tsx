@@ -1,7 +1,8 @@
 "use client";
 
 import { useSession, signOut } from 'next-auth/react';
-import { Menu, User, CreditCard, X, Home, CreditCard as CreditCardIcon, HelpCircle, LogOut, Star } from 'lucide-react';
+import Link from 'next/link';
+import { Menu, User, CreditCard, X, LogIn, LogOut } from 'lucide-react';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useCredits } from '@/hooks/usePointStore';
@@ -40,7 +41,7 @@ export default function TopNavigation({ onHamburgerClick }: TopNavigationProps) 
 
   return (
     <>
-      <div className="bg-gradient-to-r from-slate-800 to-slate-900 border-b border-slate-700 fixed top-0 left-0 right-0 z-50">
+      <div className="bg-gradient-to-r from-slate-800 via-slate-900 to-slate-800 border-b border-slate-600/80 fixed top-0 left-0 right-0 z-50 shadow-lg" style={{ boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
         <div className="flex items-center justify-between h-16 px-0">
           {/* 左侧：汉堡菜单 + Assignment Terminator */}
           <div className="flex items-center space-x-6 pl-4">
@@ -66,7 +67,7 @@ export default function TopNavigation({ onHamburgerClick }: TopNavigationProps) 
             </div>
           </div>
 
-          {/* 右侧：积分和用户信息 */}
+          {/* 右侧：积分、用户信息、登入按钮 */}
           <div className="flex items-center space-x-6 pr-4">
             {status === 'authenticated' && (
               <div className="flex items-center space-x-2 bg-amber-100 px-3 py-2 rounded-lg">
@@ -82,6 +83,15 @@ export default function TopNavigation({ onHamburgerClick }: TopNavigationProps) 
                 {status === 'authenticated' ? (session?.user?.email || '用户') : '未登入'}
               </span>
             </div>
+            {status !== 'authenticated' && (
+              <Link
+                href="/login"
+                className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition-colors"
+              >
+                <LogIn className="w-4 h-4" />
+                <span>登入</span>
+              </Link>
+            )}
           </div>
         </div>
       </div>
@@ -136,15 +146,25 @@ export default function TopNavigation({ onHamburgerClick }: TopNavigationProps) 
                 </a>
               </div>
 
-              {/* Logout Button */}
+              {/* 登入/登出按鈕 */}
               <div className="mt-6">
-                <button 
-                  onClick={handleLogout}
-                  className="w-full flex items-center space-x-3 p-3 rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600 hover:text-white transition-colors border border-slate-600"
-                >
-                  <LogOut className="w-5 h-5" />
-                  <span>登出</span>
-                </button>
+                {status === 'authenticated' ? (
+                  <button 
+                    onClick={handleLogout}
+                    className="w-full flex items-center space-x-3 p-3 rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600 hover:text-white transition-colors border border-slate-600"
+                  >
+                    <LogOut className="w-5 h-5" />
+                    <span>登出</span>
+                  </button>
+                ) : (
+                  <Link
+                    href="/login"
+                    className="w-full flex items-center space-x-3 p-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition-colors border border-emerald-500"
+                  >
+                    <LogIn className="w-5 h-5" />
+                    <span>登入</span>
+                  </Link>
+                )}
               </div>
             </div>
           </div>

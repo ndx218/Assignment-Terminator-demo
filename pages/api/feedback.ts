@@ -1,8 +1,9 @@
 // /pages/api/feedback.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { callLLM, mapMode } from '@/lib/ai';
+import { deductCredits } from '@/lib/credits';
 
-type ResBody = { feedback: string } | { error: string };
+type ResBody = { feedback: string; remainingCredits?: number } | { error: string };
 
 function detectLang(text: string): 'zh' | 'en' {
   return /[\u4e00-\u9fff]/.test(text) ? 'zh' : 'en';
@@ -17,6 +18,9 @@ export default async function handler(
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Only POST requests are allowed' });
   }
+
+  const deduct = await deductCredits(req, res);
+  if (!deduct.ok) return;
 
   const {
     text,
@@ -352,6 +356,7 @@ Required output format (compact, no unnecessary blank lines):
 
     return res.status(200).json({
       feedback: feedback || (lang === 'zh' ? '⚠️ 教師評論生成失敗' : '⚠️ Feedback generation failed'),
+      remainingCredits: deduct.remainingCredits,
     });
   } catch (err: any) {
     const msg = String(err?.message ?? '');
@@ -375,6 +380,7 @@ Required output format (compact, no unnecessary blank lines):
         );
         return res.status(200).json({
           feedback: fb2 || (lang === 'zh' ? '⚠️ 教師評論生成失敗' : '⚠️ Feedback generation failed'),
+          remainingCredits: deduct.remainingCredits,
         });
       } catch (e: any) {
         console.error('[feedback fallback failed]', e?.message);

@@ -6,6 +6,7 @@ import { useRouter } from 'next/router';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import TopNavigation from '@/components/TopNavigation';
+import { useSetCredits } from '@/hooks/usePointStore';
 
 // Dynamically load Stripe
 const getStripePromise = () => {
@@ -29,6 +30,7 @@ type PackageType = 'first' | 'starter' | 'budget' | 'standard' | 'premium';
 export default function RechargeContent() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const setCredits = useSetCredits();
   const [skipLogin, setSkipLogin] = useState<boolean | null>(null);
 
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('alipay');
@@ -174,6 +176,25 @@ export default function RechargeContent() {
     }
   };
 
+  /** 暫時性：點擊獲得 50 點（可無限使用，用於測試） */
+  const handleAdd50Points = async () => {
+    if (!session?.user?.id) {
+      alert('⚠️ 請先登入');
+      return;
+    }
+    try {
+      const res = await fetch('/api/dev/add-50-points', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '失敗');
+      if (typeof data.credits === 'number') {
+        setCredits(data.credits);
+        alert(`✅ 已獲得 50 點！目前餘額：${data.credits} 點`);
+      }
+    } catch (err: any) {
+      alert('❌ ' + (err?.message || '添加失敗'));
+    }
+  };
+
   if (skipLogin === null || (!skipLogin && status === 'loading')) {
     return <div className="h-screen flex items-center justify-center text-gray-500">⏳ 載入中...</div>;
   }
@@ -183,6 +204,18 @@ export default function RechargeContent() {
       <TopNavigation />
       <div className="pt-20 max-w-4xl mx-auto p-6 space-y-8">
         <h2 className="text-2xl font-bold text-white">💳 點數充值</h2>
+
+        {/* 暫時性：測試用 +50 點按鈕 */}
+        <div className="rounded-lg border border-amber-600/50 bg-amber-900/20 p-4">
+          <p className="text-amber-200/90 text-sm mb-2">🧪 測試用：暫時獲得 50 點（可無限使用）</p>
+          <Button
+            onClick={handleAdd50Points}
+            variant="outline"
+            className="border-amber-500 text-amber-200 hover:bg-amber-800/40"
+          >
+            +50 點（暫時）
+          </Button>
+        </div>
 
         {/* 套餐表格 */}
         <div className="overflow-x-auto">

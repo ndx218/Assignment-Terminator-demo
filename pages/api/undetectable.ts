@@ -2,8 +2,9 @@
 // ✅ /pages/api/undetectable.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { callLLM, mapMode } from '@/lib/ai';
+import { deductCredits } from '@/lib/credits';
 
-type ResBody = { result?: string; humanized?: string; resultZh?: string; humanizedZh?: string; error?: string };
+type ResBody = { result?: string; humanized?: string; resultZh?: string; humanizedZh?: string; remainingCredits?: number; error?: string };
 
 function detectLang(text: string): 'zh' | 'en' {
   return /[\u4e00-\u9fff]/.test(text) ? 'zh' : 'en';
@@ -15,6 +16,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   if (req.method !== 'POST') {
     return res.status(405).json({ error: '只接受 POST 請求' });
   }
+
+  const deduct = await deductCredits(req, res);
+  if (!deduct.ok) return;
 
   const {
     text,
@@ -121,6 +125,7 @@ Directly output the optimized text without any additional explanations, markers,
       humanized: result, // 向后兼容
       resultZh: resultZh,
       humanizedZh: resultZh,
+      remainingCredits: deduct.remainingCredits,
     });
   } catch (err: any) {
     const msg = String(err?.message ?? '');
@@ -146,6 +151,7 @@ Directly output the optimized text without any additional explanations, markers,
         return res.status(200).json({
           result: result2,
           humanized: result2,
+          remainingCredits: deduct.remainingCredits,
         });
       } catch (e: any) {
         console.error('[undetectable fallback failed]', e?.message);

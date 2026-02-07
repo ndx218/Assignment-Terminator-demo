@@ -2,9 +2,9 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { callLLM, mapMode, type StepName } from '@/lib/ai';
 import { prisma } from '@/lib/prisma';
-import { getAuthSession } from '@/lib/auth';
+import { deductCredits } from '@/lib/credits';
 
-type Ok = { outline: string; outlineId?: string; warning?: string };
+type Ok = { outline: string; outlineId?: string; warning?: string; remainingCredits?: number };
 type Err = { error: string };
 type ResBody = Ok | Err;
 
@@ -86,7 +86,7 @@ function ensureMinSections(raw: string, language: string, desiredBodies: number)
   const needBodies = Math.max(1, Number.isFinite(desiredBodies) ? desiredBodies : 3);
   const targetCount = needBodies + 2;
 
-  if (sections.length >= 3) return raw;
+  if (sections.length >= targetCount) return raw;
 
   const secs = [...sections];
   if (secs.length === 2) {
@@ -97,6 +97,20 @@ function ensureMinSections(raw: string, language: string, desiredBodies: number)
     while (secs.length < targetCount - 1)
       secs.push({ marker: '', title: '（主體待補）', body: ['- （請補充要點）'] });
     secs.push({ marker: '', title: isZH ? '結論' : 'Conclusion', body: ['- （總結與展望）'] });
+  } else if (secs.length >= 3 && secs.length < targetCount) {
+    // 有 intro + 部分 body + conclusion，需插入缺失的主體段
+    const intro = secs[0];
+    const conclusion = secs[secs.length - 1];
+    const bodies = secs.slice(1, secs.length - 1);
+    const toAdd = needBodies - bodies.length;
+    if (toAdd > 0) {
+      const newBodies = [...bodies];
+      for (let i = 0; i < toAdd; i++) {
+        newBodies.push({ marker: '', title: '（主體待補）', body: ['- （請補充要點）'] });
+      }
+      secs.length = 0;
+      secs.push(intro, ...newBodies, conclusion);
+    }
   }
   return rebuild(secs, isZH);
 }
@@ -456,14 +470,9 @@ export default async function handler(
     return res.status(405).json({ error: '只接受 POST' });
   }
 
-  // 暫時註釋掉認證檢查，方便測試
-  // const session = await getAuthSession(req, res);
-  // if (!session?.user?.id) {
-  //   return res.status(401).json({ error: '未登入' });
-  // }
-
-  // 使用實際存在的用戶ID
-  const testUserId = 'cmepnzayg0000she7snesdczz';
+  const deduct = await deductCredits(req, res);
+  if (!deduct.ok) return;
+  const { userId } = deduct;
 
   const {
     title,
@@ -726,7 +735,7 @@ ${planHint ? '\n' + planHint : ''}
   try {
     const rec = await prisma.outline.create({
       data: {
-        userId: testUserId, // 使用測試用戶ID
+        userId,
         title: String(title).slice(0, 512),
         content: finalOutline,
       },
@@ -735,7 +744,7 @@ ${planHint ? '\n' + planHint : ''}
     if (process.env.NODE_ENV !== 'production') {
       console.log('[outline:ok]', { outlineId: rec.id, modelUsed });
     }
-    return res.status(200).json({ outline: finalOutline, outlineId: rec.id });
+    return res.status(200).json({ outline: finalOutline, outlineId: rec.id, remainingCredits: deduct.remainingCredits });
   } catch (dbErr: any) {
     console.error('[outline:db]', { err: String(dbErr?.message ?? dbErr) });
     // 即使数据库保存失败，也返回生成的大纲（只是不保存到数据库）
@@ -744,6 +753,7 @@ ${planHint ? '\n' + planHint : ''}
     return res.status(200).json({ 
       outline: finalOutline, 
       outlineId: undefined,
+      remainingCredits: deduct.remainingCredits,
       warning: '大綱已生成，但無法保存到資料庫。請檢查資料庫連接。'
     });
   }

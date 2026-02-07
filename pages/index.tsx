@@ -9,6 +9,7 @@ import {
   getDatabaseStats,
   type AcademicDatabase
 } from '../lib/academicDatabases';
+import { syncCreditsFromResponse } from '../lib/syncCredits';
 
 // 定義類型接口
 const formatFileSize = (size?: number | null): string => {
@@ -1242,6 +1243,7 @@ ${enhancedKeyword}的发展方向和潜在突破`;
             }
 
             const data = await response.json();
+            syncCreditsFromResponse(data);
             let cleanedDraftEn = data.draft || '';
             let cleanedDraftZh = data.draftZh || '';
             
@@ -1498,6 +1500,7 @@ ${sectionReferenceText}
       }
 
       const data = await response.json();
+      syncCreditsFromResponse(data);
       
       // 清理可能的错误信息前缀
       let cleanedDraft = data.draft || '';
@@ -1746,6 +1749,7 @@ ${sectionReferenceText}
 
       if (response.ok) {
         const data = await response.json();
+        syncCreditsFromResponse(data);
         if (data.outline) {
           // 解析返回的大綱，找到對應的 bullet point
           const lines = data.outline.split('\n');
@@ -1913,6 +1917,7 @@ Output only the bullet point content, without any labels or numbering.`
 
           if (response.ok) {
         const data = await response.json();
+        syncCreditsFromResponse(data);
         if (data.content) {
           // 清理生成的內容
           let cleanedText = data.content.trim();
@@ -2008,6 +2013,7 @@ Output only the bullet point content, without any labels or numbering.`
 
       if (response.ok) {
         const data = await response.json();
+        syncCreditsFromResponse(data);
         if (data.outline) {
           console.log('API 返回的完整大綱:', data.outline);
           
@@ -2112,6 +2118,7 @@ Output only the bullet point content, without any labels or numbering.`
         }
 
         const data = await response.json();
+        syncCreditsFromResponse(data);
         setReviewSections(prev => ({
           ...prev,
           [sectionId]: data.feedback || ''
@@ -2170,6 +2177,7 @@ Output only the bullet point content, without any labels or numbering.`
           }
 
           const data = await response.json();
+          syncCreditsFromResponse(data);
           setReviewSections(prev => ({
             ...prev,
             [sectionId]: data.feedback || ''
@@ -2326,6 +2334,7 @@ Output only the bullet point content, without any labels or numbering.`
           }
 
           const data = await response.json();
+          syncCreditsFromResponse(data);
           // ✅ 支持新的返回格式 {revision: {en: string, zh: string}}
           let revisionEn = '';
           let revisionZh = '';
@@ -2428,6 +2437,7 @@ Output only the bullet point content, without any labels or numbering.`
           }
 
           const data = await response.json();
+          syncCreditsFromResponse(data);
           // ✅ 支持新的返回格式 {revision: {en: string, zh: string}}
           let revisionEn = '';
           let revisionZh = '';
@@ -2520,6 +2530,7 @@ Output only the bullet point content, without any labels or numbering.`
         }
 
         const data = await response.json();
+        syncCreditsFromResponse(data);
         // ✅ 支持新的返回格式 {result: {en: string, zh: string}}
         let humanizedEn = '';
         let humanizedZh = '';
@@ -2627,6 +2638,7 @@ Output only the bullet point content, without any labels or numbering.`
           }
 
           const data = await response.json();
+          syncCreditsFromResponse(data);
           // ✅ 支持新的返回格式 {result: {en: string, zh: string}}
           let humanizedEn = '';
           let humanizedZh = '';
@@ -4463,6 +4475,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
                         
                         if (response.ok) {
                           const data = await response.json();
+                          syncCreditsFromResponse(data);
                           if (data.outline) {
                             // 解析大纲为outlinePoints
                             const parsedPoints = parseOutlineToPoints(data.outline);
@@ -5955,7 +5968,9 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                                                       body: JSON.stringify({ prompt, model: selectedModel || 'gpt-5', temperature: 0.5 }),
                                                     });
                                                     if (res.ok) {
-                                                      const { content } = await res.json();
+                                                      const data = await res.json();
+                                                      syncCreditsFromResponse(data);
+                                                      const { content } = data;
                                                       setOutlinePoints(prev => prev.map(p => {
                                                         if (p.id !== point.id) return p;
                                                         return {
@@ -6182,6 +6197,7 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                                         </button>
                                       </div>
                                     </div>
+                                  </div>
                                   ))}
                                 </div>
                               </div>
