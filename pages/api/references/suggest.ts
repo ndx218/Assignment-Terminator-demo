@@ -172,6 +172,14 @@ async function suggestReferences(
     if (!cleanKeyword) {
       cleanKeyword = keyword.replace(/[\u4e00-\u9fff]+/g, ' ').replace(/\s+/g, ' ').trim();
     }
+
+    // 單一詞彙關鍵詞擴展：加入學術相關詞以提升搜尋結果
+    const words = cleanKeyword.split(/\s+/).filter(Boolean);
+    if (words.length <= 1 && cleanKeyword.length > 2) {
+      const expanded = `${cleanKeyword} research`;
+      console.log(`單一關鍵詞擴展: "${cleanKeyword}" -> "${expanded}"`);
+      cleanKeyword = expanded;
+    }
     
     console.log(`清理后的关键词: "${cleanKeyword}"`);
     

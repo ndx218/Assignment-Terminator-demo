@@ -2956,27 +2956,39 @@ ${ref.year ? `年份：${ref.year}` : ''}
         }
       }
       
-      // 只显示已验证的文献并添加PDF信息
+      // 優先顯示已驗證的文獻；若無則顯示有摘要/概述的結果；最後備選為 API 原始結果
+      const verifiedFilter = (ref: any) => {
+        const isVerified = ref.deepAnalysis?.metadata?.verified || 
+                          ref.deepAnalysis?.metadata?.has_abstract || 
+                          (ref.deepAnalysis?.metadata?.abstract_length >= 100);
+        return isVerified;
+      };
+      const hasUsefulContent = (ref: any) => {
+        const hasSummary = (ref.summary && ref.summary.length >= 50) || 
+                          (ref.deepAnalysis?.chineseExplanation && ref.deepAnalysis.chineseExplanation.length >= 30);
+        return hasSummary || verifiedFilter(ref);
+      };
+      const excludeBlocked = (ref: any) => {
+        if (form.referenceSettings?.excludeLoginRequiredPublishers && isBlockedPublisher(ref.url)) {
+          return false;
+        }
+        return true;
+      };
+
+      let displayResults = enhancedResults.filter(ref => excludeBlocked(ref) && verifiedFilter(ref));
+      if (displayResults.length === 0) {
+        displayResults = enhancedResults.filter(ref => excludeBlocked(ref) && hasUsefulContent(ref));
+      }
+      // 若仍無結果，使用 API 原始結果（前 10 筆）作為備選
+      if (displayResults.length === 0 && convertedResults.length > 0) {
+        displayResults = convertedResults.filter(ref => excludeBlocked(ref)).slice(0, 10);
+      }
+
       const verifiedResults = await Promise.all(
-        enhancedResults.filter(ref => {
-          const isVerified = ref.deepAnalysis?.metadata?.verified || 
-                            ref.deepAnalysis?.metadata?.has_abstract || 
-                            (ref.deepAnalysis?.metadata?.abstract_length >= 100);
-          if (!isVerified) return false;
-          if (form.referenceSettings?.excludeLoginRequiredPublishers && isBlockedPublisher(ref.url)) {
-            console.log(`[前端 Filter] 排除付費出版商: ${ref.url}`);
-            return false;
-          }
-          return true;
-        }).map(async (ref) => {
+        displayResults.map(async (ref) => {
           const pdfInfo = await getLibraryPdfInfo(ref.title);
           if (pdfInfo) {
-            return {
-              ...ref,
-              fileUrl: pdfInfo.fileUrl,
-              fileName: pdfInfo.fileName,
-              fileSize: pdfInfo.fileSize
-            };
+            return { ...ref, fileUrl: pdfInfo.fileUrl, fileName: pdfInfo.fileName, fileSize: pdfInfo.fileSize };
           }
           return ref;
         })
@@ -2996,6 +3008,8 @@ ${ref.year ? `年份：${ref.year}` : ''}
       
       console.log(`為大綱點 ${pointId} 搜尋文獻成功，搜索了 ${enhancedResults.length} 篇文獻，找到 ${verifiedResults.length} 篇已验证文献（目标: ${targetVerifiedCount}篇）`);
       
+      const usedFallback = displayResults.length > 0 && displayResults.some((r: any) => !verifiedFilter(r));
+
       if (verifiedResults.length >= targetVerifiedCount) {
         setSearchResultModal({
           show: true,
@@ -3007,16 +3021,14 @@ ${ref.year ? `年份：${ref.year}` : ''}
       } else if (verifiedResults.length > 0) {
         setSearchResultModal({
           show: true,
-          type: 'warning',
-          title: '搜索完成',
-          message: `只找到 ${verifiedResults.length} 篇已验证文献（目标: ${targetVerifiedCount}篇）`,
-          details: [
-            '建议：',
-            '• 尝试使用更具体的关键词',
-            '• 点击"AI增強"按钮优化关键词',
-            '• 启用"自动排除需登录出版商"选项',
-            '• 确保已选择所有可用的数据库来源（Google Scholar、Semantic Scholar、OpenAlex）'
-          ]
+          type: usedFallback ? 'warning' : 'success',
+          title: usedFallback ? '搜索完成（部分未驗證）' : '搜索完成',
+          message: usedFallback
+            ? `找到 ${verifiedResults.length} 篇文獻，部分為未驗證結果，建議您自行核實。`
+            : `找到 ${verifiedResults.length} 篇文獻（目标: ${targetVerifiedCount}篇）。`,
+          details: usedFallback
+            ? ['建議：', '• 可手動添加或替換文獻', '• 嘗試使用「AI增強」優化關鍵詞', '• 使用更具體的英文術語']
+            : ['建議：', '• 嘗試使用更具體的關鍵詞', '• 點擊「AI增強」按鈕優化關鍵詞', '• 確保已選擇所有可用的數據庫來源']
         });
       } else {
         setSearchResultModal({
@@ -4158,14 +4170,14 @@ ${ref.year ? `年份：${ref.year}` : ''}
   }, [fullDraftTextEn]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-700" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #334155 100%)', backgroundAttachment: 'fixed' }}>
+    <div className="min-h-screen" style={{ background: 'linear-gradient(160deg, #0f172a 0%, #1e293b 35%, #2d3748 70%, #1a365d 100%)', backgroundAttachment: 'fixed' }}>
       <TopNavigation />
       
-      <div className="pt-16 px-6" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #334155 100%)', backgroundAttachment: 'fixed' }}>
-        <div className="flex" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #334155 100%)', backgroundAttachment: 'fixed' }}>
+      <div className="pt-16 px-6">
+        <div className="flex">
           {/* -------- 左：功課設定 -------- */}
-          <div className="w-96 border-r border-slate-600 p-4 bg-slate-800 min-h-screen overflow-y-auto" style={{ backgroundColor: '#1e293b' }}>
-            <div className="bg-slate-700 rounded-lg shadow-lg p-4">
+          <div className="w-96 border-r border-slate-500/50 p-4 min-h-screen overflow-y-auto" style={{ backgroundColor: 'rgba(30, 41, 59, 0.95)', boxShadow: '4px 0 24px rgba(0,0,0,0.15)' }}>
+            <div className="rounded-xl shadow-lg p-4" style={{ backgroundColor: 'rgba(51, 65, 85, 0.9)', border: '1px solid rgba(148, 163, 184, 0.2)' }}>
               <div className="flex items-center justify-between mb-4">
                 <h2 className="font-bold text-lg bg-gradient-to-r from-amber-400 to-yellow-300 bg-clip-text text-transparent">功課設定</h2>
                 <button
@@ -4237,9 +4249,9 @@ ${ref.year ? `年份：${ref.year}` : ''}
           </div>
 
           {/* 段落規劃器 */}
-          <div className="bg-slate-600 rounded-lg p-3 border border-slate-500 mb-6">
+          <div className="rounded-lg p-3 mb-6" style={{ backgroundColor: 'rgba(20, 184, 166, 0.15)', border: '1px solid rgba(20, 184, 166, 0.3)' }}>
                     <div className="flex items-center justify-between mb-2">
-                      <h3 className="font-bold text-base text-white">🧭 段落規劃器</h3>
+                      <h3 className="font-bold text-base text-cyan-200">🧭 段落規劃器</h3>
                       <button
                         onClick={() => setForm({ ...form, plannerExpanded: !form.plannerExpanded })}
                         className="text-white bg-slate-600 border-2 border-slate-400 rounded px-2 py-1 hover:bg-slate-500 hover:border-slate-300 transition-colors shadow-lg"
@@ -4494,17 +4506,17 @@ ${ref.year ? `年份：${ref.year}` : ''}
           </div>
 
           {/* -------- 右：大綱產生器結果 -------- */}
-          <div className="flex-1 overflow-y-auto p-6 bg-slate-800 min-h-screen" style={{ backgroundColor: '#1e293b' }}>
-            <div className="bg-slate-700 rounded-lg shadow-sm p-6 border border-slate-600">
+          <div className="flex-1 overflow-y-auto p-6 min-h-screen" style={{ backgroundColor: 'rgba(30, 41, 59, 0.7)' }}>
+            <div className="rounded-xl shadow-sm p-6" style={{ backgroundColor: 'rgba(51, 65, 85, 0.85)', border: '1px solid rgba(148, 163, 184, 0.15)' }}>
               <h2 className="text-xl font-bold mb-4 text-white">📝 文字產生區</h2>
               
               <div className="mb-4">
-                <div className="flex space-x-2 mb-4">
+                <div className="flex flex-wrap gap-2 mb-4">
                   <button 
                     className={`px-4 py-2 rounded-lg border transition-all ${
                       activeTab === 'outline' 
-                        ? 'bg-slate-600 text-white border-slate-500' 
-                        : 'bg-slate-700 text-slate-300 border-slate-600 hover:bg-slate-600'
+                        ? 'bg-violet-600 text-white border-violet-500 shadow-lg shadow-violet-500/25' 
+                        : 'bg-slate-700/80 text-slate-300 border-slate-600 hover:bg-slate-600 hover:border-violet-500/50'
                     }`}
                     onClick={() => setActiveTab('outline')}
                   >
@@ -4513,8 +4525,8 @@ ${ref.year ? `年份：${ref.year}` : ''}
                   <button 
                     className={`px-4 py-2 rounded-lg border transition-all ${
                       activeTab === 'draft' 
-                        ? 'bg-slate-600 text-white border-slate-500' 
-                        : 'bg-slate-700 text-slate-300 border-slate-600 hover:bg-slate-600'
+                        ? 'bg-blue-600 text-white border-blue-500 shadow-lg shadow-blue-500/25' 
+                        : 'bg-slate-700/80 text-slate-300 border-slate-600 hover:bg-slate-600 hover:border-blue-500/50'
                     }`}
                     onClick={() => setActiveTab('draft')}
                   >
@@ -4523,8 +4535,8 @@ ${ref.year ? `年份：${ref.year}` : ''}
                   <button 
                     className={`px-4 py-2 rounded-lg border transition-all ${
                       activeTab === 'review' 
-                        ? 'bg-slate-600 text-white border-slate-500' 
-                        : 'bg-slate-700 text-slate-300 border-slate-600 hover:bg-slate-600'
+                        ? 'bg-amber-600 text-white border-amber-500 shadow-lg shadow-amber-500/25' 
+                        : 'bg-slate-700/80 text-slate-300 border-slate-600 hover:bg-slate-600 hover:border-amber-500/50'
                     }`}
                     onClick={() => setActiveTab('review')}
                   >
@@ -4533,8 +4545,8 @@ ${ref.year ? `年份：${ref.year}` : ''}
                   <button 
                     className={`px-4 py-2 rounded-lg border transition-all ${
                       activeTab === 'revision' 
-                        ? 'bg-slate-600 text-white border-slate-500' 
-                        : 'bg-slate-700 text-slate-300 border-slate-600 hover:bg-slate-600'
+                        ? 'bg-emerald-600 text-white border-emerald-500 shadow-lg shadow-emerald-500/25' 
+                        : 'bg-slate-700/80 text-slate-300 border-slate-600 hover:bg-slate-600 hover:border-emerald-500/50'
                     }`}
                     onClick={() => setActiveTab('revision')}
                   >
@@ -4543,8 +4555,8 @@ ${ref.year ? `年份：${ref.year}` : ''}
                   <button 
                     className={`px-4 py-2 rounded-lg border transition-all ${
                       activeTab === 'final' 
-                        ? 'bg-slate-600 text-white border-slate-500' 
-                        : 'bg-slate-700 text-slate-300 border-slate-600 hover:bg-slate-600'
+                        ? 'bg-cyan-600 text-white border-cyan-500 shadow-lg shadow-cyan-500/25' 
+                        : 'bg-slate-700/80 text-slate-300 border-slate-600 hover:bg-slate-600 hover:border-cyan-500/50'
                     }`}
                     onClick={() => setActiveTab('final')}
                   >
@@ -7021,8 +7033,8 @@ ${ref.year ? `年份：${ref.year}` : ''}
 
       {/* 搜索结果提示Modal */}
       {searchResultModal && searchResultModal.show && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setSearchResultModal(null)}>
-          <div className="bg-slate-800 rounded-lg border border-slate-600 p-6 max-w-lg w-full mx-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 flex items-center justify-center z-50" onClick={() => setSearchResultModal(null)} style={{ backgroundColor: 'rgba(0, 0, 0, 0.75)' }}>
+          <div className="rounded-xl border border-slate-500 p-6 max-w-lg w-full mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()} style={{ backgroundColor: '#1e293b', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)' }}>
             <div className="flex items-start justify-between mb-4">
               <div className="flex items-center gap-3">
                 {searchResultModal.type === 'success' && (
@@ -7054,7 +7066,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
               <p className="text-slate-300 text-sm mb-3">{searchResultModal.message}</p>
               
               {searchResultModal.details && searchResultModal.details.length > 0 && (
-                <div className="bg-slate-900 rounded p-4 border border-slate-700">
+                <div className="rounded-lg p-4 border border-slate-600" style={{ backgroundColor: '#0f172a' }}>
                   <ul className="space-y-1 text-xs text-slate-400">
                     {searchResultModal.details.map((detail, idx) => (
                       <li key={idx} className={detail && !detail.startsWith('•') && !detail.includes(':') && !detail.includes('建议') && !detail.includes('原因') ? 'font-medium text-slate-300 mt-2' : ''}>
