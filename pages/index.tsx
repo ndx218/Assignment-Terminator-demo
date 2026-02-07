@@ -2984,6 +2984,40 @@ ${ref.year ? `年份：${ref.year}` : ''}
         displayResults = convertedResults.filter(ref => excludeBlocked(ref)).slice(0, 10);
       }
 
+      // AI 排序：從結果中挑選最相關的 3 篇（當結果超過 3 筆時）
+      if (displayResults.length > 3) {
+        try {
+          const rankRes = await fetch('/api/references/rank', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              paperTitle: form.title,
+              keyword: finalKeyword,
+              refs: displayResults.map((r: any) => ({
+                id: r.id,
+                title: r.title,
+                authors: r.authors,
+                year: r.year,
+                source: r.source,
+                summary: (r.summary || r.deepAnalysis?.chineseExplanation || '').slice(0, 300),
+              })),
+              topN: 3,
+            }),
+          });
+          if (rankRes.ok) {
+            const { rankedIds } = await rankRes.json();
+            const orderMap = new Map<string, number>(rankedIds.map((id: string, i: number) => [id, i]));
+            displayResults = [...displayResults].sort((a, b) => {
+              const ai = orderMap.get(String(a.id)) ?? 999;
+              const bi = orderMap.get(String(b.id)) ?? 999;
+              return Number(ai) - Number(bi);
+            }).slice(0, 6);
+          }
+        } catch (e) {
+          console.warn('AI 排序失敗，使用原始順序:', e);
+        }
+      }
+
       const verifiedResults = await Promise.all(
         displayResults.map(async (ref) => {
           const pdfInfo = await getLibraryPdfInfo(ref.title);
@@ -5860,17 +5894,20 @@ ${ref.year ? `年份：${ref.year}` : ''}
                             
                             {/* 參考文獻列表 - 显示该bullet point的参考文献 */}
                             {bulletReferences.length > 0 && (
-                              <div className="mt-4 p-3 bg-slate-700 rounded border border-slate-500">
-                                <h6 className="text-sm font-medium text-white mb-3">📚 參考文獻 ({bulletReferences.length})</h6>
-                                <div className="space-y-3">
-                                  {bulletReferences.map((ref) => (
-                                    <div key={ref.id} className="p-3 bg-slate-800 rounded border border-slate-600">
-                                      <div className="flex justify-between items-start mb-2">
-                                        <div className="flex-1">
-                                          <p className="text-slate-200 text-sm font-medium mb-1">{ref.title}</p>
-                                          <p className="text-slate-400 text-xs mb-2">{ref.authors} ({ref.year}). {ref.source}</p>
-                                        </div>
-                                        <div className="flex gap-2">
+                              <div className="mt-4 p-4 rounded-xl" style={{ backgroundColor: 'rgba(51, 65, 85, 0.6)', border: '1px solid rgba(100, 116, 139, 0.4)' }}>
+                                <h6 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+                                  <span className="w-1 h-4 rounded-full bg-amber-400" />
+                                  📚 參考文獻 ({bulletReferences.length})
+                                </h6>
+                                <div className="space-y-4">
+                                  {bulletReferences.map((ref, refIdx) => (
+                                    <div key={ref.id} className="rounded-lg overflow-hidden border-l-4" style={{ borderLeftColor: refIdx % 3 === 0 ? '#3b82f6' : refIdx % 3 === 1 ? '#10b981' : '#8b5cf6', backgroundColor: 'rgba(30, 41, 59, 0.9)', border: '1px solid rgba(148, 163, 184, 0.2)' }}>
+                                      <div className="p-4">
+                                        <div className="flex justify-between items-start mb-3">
+                                          <div className="flex-1 pr-2">
+                                            <p className="text-slate-100 text-sm font-medium mb-1 leading-snug">{ref.title}</p>
+                                            <p className="text-slate-400 text-xs mb-0">{ref.authors} ({ref.year}). <span className="text-amber-200/80">{ref.source || 'Semantic Scholar'}</span></p>
+                                          </div>
                                           <button
                                             onClick={() => {
                                             setOutlinePoints(prev => prev.map(p => 
@@ -5879,62 +5916,106 @@ ${ref.year ? `年份：${ref.year}` : ''}
                                                 : p
                                             ));
                                         }}
-                                            className="px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700"
+                                            className="px-2 py-1 bg-red-600/80 text-white text-xs rounded hover:bg-red-600 transition-colors"
                                             title="刪除"
                                           >
                                             ✕
                                           </button>
-                                </div>
-                                </div>
-                                  
-                                  {/* 中文概述 */}
-                                      {(ref.deepAnalysis?.chineseExplanation || ref.summary) && (
-                                        <div className="mb-2">
-                                          <label className="block text-xs text-slate-400 mb-1">■中文概述:</label>
-                                          <textarea
-                                            value={ref.deepAnalysis?.chineseExplanation || ref.summary || ''}
-                                            readOnly
-                                            className="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded text-white text-xs resize-y"
-                                            rows={3}
-                                          />
                                         </div>
-                                  )}
+                                  
+                                  {/* 中文概述 - 始終顯示，無則顯示摘要或佔位 */}
+                                      <div className="mb-3 pt-2 border-t border-slate-600/50">
+                                          <label className="block text-xs font-medium text-emerald-300 mb-1">■ 中文概述</label>
+                                          {(ref.deepAnalysis?.chineseExplanation || ref.summary) ? (
+                                            <textarea
+                                              value={ref.deepAnalysis?.chineseExplanation || ref.summary || ''}
+                                              readOnly
+                                              className="w-full px-3 py-2 bg-slate-800/80 border border-slate-600 rounded-lg text-slate-200 text-xs resize-y"
+                                              rows={3}
+                                            />
+                                          ) : (
+                                            <div className="flex items-center gap-2">
+                                              <p className="text-slate-500 text-xs italic flex-1">（此篇暫無中文概述）</p>
+                                              <button
+                                                type="button"
+                                                onClick={async () => {
+                                                  try {
+                                                    const prompt = `請基於以下論文資訊生成 2–3 句簡潔中文概述。只描述研究主題，不要編造具體方法或數據。
+
+標題：${ref.title}
+${ref.authors ? `作者：${ref.authors}` : ''}
+${ref.source ? `來源：${ref.source}` : ''}
+${ref.year ? `年份：${ref.year}` : ''}
+${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 300)}` : ''}
+
+請直接輸出 2–3 句中文概述：`;
+                                                    const res = await fetch('/api/generate-bullet', {
+                                                      method: 'POST',
+                                                      headers: { 'Content-Type': 'application/json' },
+                                                      body: JSON.stringify({ prompt, model: selectedModel || 'gpt-5', temperature: 0.5 }),
+                                                    });
+                                                    if (res.ok) {
+                                                      const { content } = await res.json();
+                                                      setOutlinePoints(prev => prev.map(p => {
+                                                        if (p.id !== point.id) return p;
+                                                        return {
+                                                          ...p,
+                                                          references: p.references.map(r =>
+                                                            r.id === ref.id
+                                                              ? { ...r, deepAnalysis: { ...(r.deepAnalysis || {}), chineseExplanation: content, englishSentences: r.deepAnalysis?.englishSentences || [] } } as Reference
+                                                              : r
+                                                          ),
+                                                        };
+                                                      }));
+                                                    }
+                                                  } catch (e) {
+                                                    console.error('生成中文概述失敗:', e);
+                                                    alert('生成失敗，請稍後再試');
+                                                  }
+                                                }}
+                                                className="px-2 py-1 bg-emerald-600 text-white text-xs rounded hover:bg-emerald-500"
+                                              >
+                                                生成概述
+                                              </button>
+                                            </div>
+                                          )}
+                                        </div>
                                   
                                       {/* 可用句子 */}
                                       {ref.keySentences && ref.keySentences.length > 0 && (
-                                        <div className="mb-2">
+                                        <div className="mb-3">
                                           <label className="block text-xs text-slate-400 mb-1">可用句子:</label>
                                           <div className="space-y-1">
                                             {ref.keySentences.map((sentence, sIdx) => (
-                                              <p key={sIdx} className="text-slate-300 text-xs px-2 py-1 bg-slate-900 rounded border border-slate-700">
+                                              <p key={sIdx} className="text-slate-300 text-xs px-2 py-1 bg-slate-800/60 rounded border border-slate-600/50">
                                                 {sentence}
                                               </p>
                                             ))}
-                                                  </div>
-                                                </div>
-                                              )}
+                                          </div>
+                                        </div>
+                                      )}
                                       
                                       {/* APA7引用 */}
                                       {ref.citation && (
-                                        <div className="mb-2">
-                                          <label className="block text-xs text-slate-400 mb-1">APA7引用:</label>
+                                        <div className="mb-3">
+                                          <label className="block text-xs font-medium text-amber-200/90 mb-1">APA7 引用</label>
                                           <textarea
                                             value={ref.citation}
                                             readOnly
-                                            className="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded text-white text-xs resize-y"
+                                            className="w-full px-3 py-2 bg-slate-800/80 border border-slate-600 rounded-lg text-slate-200 text-xs resize-y"
                                             rows={2}
                                           />
-                                          </div>
+                                        </div>
                                       )}
                                       
                                       {/* 操作按鈕 */}
-                                      <div className="flex flex-wrap gap-2 mt-3">
+                                      <div className="flex flex-wrap gap-2 pt-3 border-t border-slate-600/50">
                                         {ref.url && (
                                           <a
                                             href={ref.url}
                                             target="_blank"
                                             rel="noopener noreferrer"
-                                            className="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors"
+                                            className="px-3 py-1.5 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-500 transition-colors"
                                           >
                                             访问网站
                                           </a>
@@ -5975,11 +6056,11 @@ ${ref.year ? `年份：${ref.year}` : ''}
 
         alert('这笔文献未提供可导向的下载连结。');
                                           }}
-                                          className="px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors"
+                                          className="px-3 py-1.5 bg-emerald-600 text-white text-xs rounded-lg hover:bg-emerald-500 transition-colors"
                                         >
                                           下载文献
                                         </button>
-                                        <label className="px-3 py-1 bg-purple-600 text-white text-xs rounded hover:bg-purple-700 transition-colors cursor-pointer">
+                                        <label className="px-3 py-1.5 bg-violet-600 text-white text-xs rounded-lg hover:bg-violet-500 transition-colors cursor-pointer">
                                           上传PDF
                                           <input
                                             type="file"
