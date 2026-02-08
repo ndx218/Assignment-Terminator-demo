@@ -716,8 +716,8 @@ export default async function handler(
       : '段落';
     
     const languageInstruction = isZH 
-      ? `⚠️ 必須使用${language}撰寫，不得使用其他語言（如英文）！`
-      : `⚠️ Must write in ${language}, no other languages allowed!`;
+      ? `⚠️ 必須完全使用中文撰寫，不得混用英文。`
+      : `⚠️ CRITICAL: Must write 100% in English only. No Chinese or mixed languages.`;
     
     // 引言部分使用特殊的結構化 prompt
     const isIntroduction = sectionIdNum === 1;
@@ -918,7 +918,7 @@ Return ONLY the paragraph text.
 ⚠️ 核心要求：
 1. **直接輸出段落內容**，不要解釋如何寫作，不要提供續寫說明
 2. **必須達到 ${wc} 字**，不能少於 ${wc} 字
-3. **必須使用${language}撰寫**，語氣：${tone}
+3. **必須完全使用中文撰寫，不得混用英文**，語氣：${tone}
 4. **以段落形式呈現**，不要使用條列符號或編號列表
 5. **必須基於以下 Hook、Background、Thesis 的具體要點撰寫**，確保涵蓋所有子點內容
 6. **絕對禁止輸出任何說明性文字**
@@ -958,7 +958,7 @@ refLines ? `【已驗證的資料來源（僅使用以下已驗證文獻）】\n
 ⚠️ 核心要求：
 1. **直接輸出段落內容**，不要解釋如何寫作，不要提供續寫說明
 2. **必須達到 ${wc} ${isZH ? '字' : 'words'}**，不能少於 ${wc} ${isZH ? '字' : 'words'}
-3. **必須使用${language}撰寫**，語氣：${tone}
+3. **${isZH ? '必須完全使用中文撰寫，不得混用英文' : 'Must write 100% in English only, no Chinese'}**，語氣：${tone}
 ${sectionRoleDetermined === 'body' ? '4. **禁止使用結論性語言**：不要使用 "In conclusion"、"To conclude"、"Overall"、"In summary" 等開頭。這是主體段落，不是結論。\n' : ''}${sectionRoleDetermined === 'body' ? '5' : '4'}. **以段落形式呈現**，不要使用條列符號或編號列表
 ${sectionRoleDetermined === 'body' ? '6' : '5'}. **絕對禁止輸出任何說明性文字**，包括：
    - 「無法續寫，因為未提供『已寫內容』」
@@ -1002,15 +1002,15 @@ refLines ? `【已驗證的資料來源（僅使用以下已驗證文獻）】\n
   } else {
     // 完整文章生成提示词
     const languageInstruction = isZH 
-      ? `⚠️ 必須使用${language}撰寫，不得使用其他語言（如英文）！`
-      : `⚠️ Must write in ${language}, no other languages allowed!`;
+      ? `⚠️ 必須完全使用中文撰寫，不得混用英文。`
+      : `⚠️ CRITICAL: Must write 100% in English only. No Chinese or mixed languages.`;
     
     prompt = `你是一位專業的學術寫作助手。請根據以下大綱與寫作要求，**直接撰寫**一篇約 ${wc} ${isZH ? '字' : 'words'}的完整文章。
 
 ⚠️ 核心要求：
 1. **直接輸出完整的文章內容**，不要解釋如何寫作，不要提供續寫說明
 2. **必須達到 ${wc} ${isZH ? '字' : 'words'}**，不能少於 ${wc} ${isZH ? '字' : 'words'}
-3. **必須使用${language}撰寫全文**，語氣：${tone}
+3. **${isZH ? '必須完全使用中文撰寫，不得混用英文' : 'Must write 100% in English only, no Chinese'}**，語氣：${tone}
 4. **以段落形式呈現**，不要使用條列符號或編號列表
 5. **絕對禁止輸出任何說明性文字**，包括：
    - 「無法續寫，因為未提供『已寫內容』」
@@ -1064,7 +1064,7 @@ refLines ? `【已驗證的資料來源（僅使用以下已驗證文獻）】\n
 
 ⚠️ 核心規則（必須嚴格遵守）：
 1. **直接生成段落內容**，不要解釋如何寫作，不要提供續寫說明或提示
-2. 必須使用${language}撰寫全文，禁止使用其他語言
+2. ${isZH ? '必須完全使用中文撰寫，不得混用英文' : 'Must write 100% in English only, no Chinese'}
 3. 必須達到指定的字數要求，不能少於要求的字數
 4. 只能引用用戶提供的已驗證文獻，禁止虛構作者、年份或DOI
 5. 如果沒有提供文獻，則不要添加任何引用或參考文獻列表
@@ -1082,7 +1082,7 @@ refLines ? `【已驗證的資料來源（僅使用以下已驗證文獻）】\n
 
 ⚠️ Core Rules (Must Strictly Follow):
 1. **Generate paragraph content directly**, do not explain how to write or provide continuation instructions
-2. Must write in ${language}, no other languages allowed
+2. Must write 100% in English only, no Chinese or mixed languages
 3. Must meet the specified word count requirement, cannot be less than required
 4. Only cite verified references provided by the user, do not fabricate authors, years, or DOIs
 5. If no references are provided, do not add any citations or reference list
@@ -1202,18 +1202,18 @@ Violating any of these rules will be considered a serious error. Your output sho
             ? `你是嚴謹的中文學術寫作助手。僅續寫剩餘內容，避免重複與重新開場或總結。
 
 ⚠️ 續寫規則：
-1. 必須使用${language}撰寫
+1. ${isZH ? '必須完全使用中文撰寫，不得混用英文' : 'Must write 100% in English only'}
 2. 僅續寫新內容，不要重複已有內容
 3. 保持與前文相同的風格和語氣
 4. 不要添加未提供的引用資料`
             : `You are a rigorous academic writing assistant. Only continue the text to reach the required length.
 
 ⚠️ Continuation Rules:
-1. Must write in ${language}
+1. Must write 100% in English only, no Chinese
 2. Only add new content, do not repeat existing text
 3. Maintain the same style and tone as previous text
 4. Do not add citations not provided` },
-          { role: 'user', content: `${continuePrompt}\n\n【已寫內容】\n${draft}\n\n【續寫要求】\n- 僅續寫新內容\n- 風格保持一致\n- 使用${language}\n- 不得少於剩餘目標${isZH ? '字' : '單詞'}數` },
+          { role: 'user', content: `${continuePrompt}\n\n【已寫內容】\n${draft}\n\n【續寫要求】\n- 僅續寫新內容\n- 風格保持一致\n- ${isZH ? '必須完全使用中文' : 'Must use English only, no Chinese'}\n- 不得少於剩餘目標${isZH ? '字' : '單詞'}數` },
         ],
         { 
           ...llmOpts, 
@@ -1364,7 +1364,24 @@ Text:
       });
     }
 
-    return res.status(200).json({ draft, remainingCredits: deduct.remainingCredits });
+    let draftZh: string | undefined;
+    if (generateBoth && !isZH && draft) {
+      try {
+        const translateResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/translate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: draft, targetLang: 'zh' }),
+        });
+        if (translateResponse.ok) {
+          const translateData = await translateResponse.json();
+          draftZh = translateData.translated || '';
+        }
+      } catch (err) {
+        console.error('[draft zh generation failed]', err);
+      }
+    }
+
+    return res.status(200).json({ draft, draftZh, remainingCredits: deduct.remainingCredits });
   } catch (err: any) {
     // ✅ 处理 MODEL_RETURNED_CIPHERTEXT 错误
     if (err?.message === 'MODEL_RETURNED_CIPHERTEXT') {

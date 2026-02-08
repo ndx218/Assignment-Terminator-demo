@@ -262,8 +262,12 @@ async function backfillMissingBullets(
   for (const sec of sections) {
     if (!isMissingBody(sec.body)) continue;
 
-    const prompt = `
-請用「${ctx.language}」為主題《${ctx.title}》中的章節「${sec.title}」補出 3–5 條要點：
+    const wantZH = /中|中文|zh/i.test(ctx.language);
+    const langRule = wantZH
+      ? '⚠️ 必須完全使用中文輸出，不得混用英文。'
+      : '⚠️ CRITICAL: Output must be 100% in English only. No Chinese or mixed languages.';
+    const prompt = `${wantZH ? '請用「中文」' : 'Use English only. '}為主題《${ctx.title}》中的章節「${sec.title}」補出 3–5 條要點：
+${langRule}
 - 直接輸出每行以「- 」開頭的子彈點
 - 不要加章節標題、不要加小節編號或其他說明
 - 語氣：${ctx.tone}
@@ -289,7 +293,7 @@ async function backfillMissingBullets(
       .map(s => (s.startsWith('- ') ? s : `- ${s.replace(/^[-•]\s+/, '')}`))
       .slice(0, 5);
 
-    const explain = sec.body.find(l => /^> 說明：/.test((l || '').trim()));
+    const explain = sec.body.find(l => /^> (說明：|Note:)/.test((l || '').trim()));
     sec.body = [...(cleaned.length ? cleaned : ['- （請補充要點）']), ...(explain ? [explain] : [])];
     changed = true;
   }
@@ -308,7 +312,7 @@ async function enrichBullets(
 
   for (const sec of sections) {
     // gather existing main bullets & keep explanation line
-    const explain = sec.body.find(l => /^> 說明：/.test((l || '').trim())) || '';
+    const explain = sec.body.find(l => /^> (說明：|Note:)/.test((l || '').trim())) || '';
     const bullets = sec.body
       .map(s => s.trim())
       .filter(Boolean)
@@ -320,14 +324,19 @@ async function enrichBullets(
       ? '（保留/新增/補）'
       : '(keep/add/expand)';
 
+    const wantZH = /中|中文|zh/i.test(ctx.language);
+    const langRule = wantZH
+      ? '⚠️ 必須完全使用中文輸出，不得混用英文。'
+      : '⚠️ CRITICAL: Output must be 100% in English only. No Chinese or mixed languages.';
     const prompt = `
-請用「${ctx.language}」將章節「${sec.title}」的要點改寫為高資訊密度版本，要求如下：
+${wantZH ? '請用「中文」' : 'Use English only. '}將章節「${sec.title}」的要點改寫為高資訊密度版本，要求如下：
+${langRule}
 1) 只輸出 3–5 條主要要點，每條「必須」以「- 」開頭。
 2) 每條格式為「短標題${tagNote}：一句具體說明（避免空話）」。
 3) 視需要，在下一行縮排兩空白加入「a.」「b.」子要點（各 ≤ 20 字；可給例子/對比/指標/可操作步驟）。
 4) 如合適，可在主行句尾加一個來源關鍵詞（非連結），例如：arXiv、ACL Anthology、OWASP、EU AI Act、Apple Security Research 等。
 5) 不要章節標題、不要空行、不要連結；保留語氣：${ctx.tone}。
-【原有要點】
+【原有要點 / Original bullets】
 ${bullets.join('\n')}
 `.trim();
 
@@ -500,6 +509,11 @@ export default async function handler(
   }
 
   const lang = String(language || '中文');
+  const isZH = /中|中文|zh/i.test(lang);
+  const langNote = isZH ? '> 說明：' : '> Note:';
+  const langRule = isZH 
+    ? '⚠️ 硬性要求：全文必須僅使用中文輸出，不得混用英文。所有標題、要點、說明皆須為中文。'
+    : '⚠️ CRITICAL: Output must be 100% in English only. No Chinese or mixed languages. All titles, bullets, and notes must be in English.';
   const planHint = (() => {
     if (!paragraphPlan) return '';
     const bCount =
@@ -519,45 +533,47 @@ export default async function handler(
   
   const prompt = isRegeneratingPoint
     ? `
-請重新生成第 ${regeneratePointId} 段的大綱內容，**務必**照以下規則：
-1. 中文用「一、二、三…」，英文用「1. 2. 3.…」編號。
-2. 每節標題獨立一行，後面不加任何符號。
-3. 每節下至少 2–4 條「- 主要點」，可視需要在每條主要點下再加 a./b. 子要點（縮排兩空白）。
-4. 每個章節最後加 1 行補充說明，開頭寫 **"> 說明："**（提供脈絡與延伸，不要放連結）。
-5. 只輸出第 ${regeneratePointId} 段的內容，不要輸出其他段落。
+${isZH ? '請重新生成' : 'Regenerate'}第 ${regeneratePointId} 段的大綱內容，**務必**照以下規則：
+1. ${isZH ? '中文用「一、二、三…」，英文用「1. 2. 3.…」編號。' : 'Use "1. 2. 3.…" numbering. Section titles in English.'}
+2. ${isZH ? '每節標題獨立一行，後面不加任何符號。' : 'Each section title on its own line.'}
+3. ${isZH ? '每節下至少 2–4 條「- 主要點」，可視需要在每條主要點下再加 a./b. 子要點。' : '2–4 main bullets per section (each starting with "- "), optionally add a./b. subpoints.'}
+4. ${isZH ? '每個章節最後加 1 行補充說明，開頭寫 **"> 說明："**。' : `Each section ends with one line starting **"${langNote}"** (provide context, no links).`}
+5. ${isZH ? '只輸出第 ' + regeneratePointId + ' 段的內容。' : 'Output only section ' + regeneratePointId + '.'}
 
-【需求】
-題目：${title}
-字數：約 ${wc}
-語言：${language}（語氣：${tone}）
-細節：${detail}
-引用：${reference}
-評分準則：${rubric}
+${langRule}
+
+【需求 / Requirements】
+題目/Title：${title}
+字數/Words：約 ${wc}
+語言/Language：${language}（語氣/Tone：${tone}）
+細節/Detail：${detail}
 ${planHint ? '\n' + planHint : ''}
 
-【當前完整大綱（僅供參考上下文）】
+【當前大綱 / Current Outline】
 ${currentOutline}
 
-請只輸出第 ${regeneratePointId} 段的完整大綱內容（包括標題、要點和說明），格式與其他段落保持一致。`.trim()
+${isZH ? '請只輸出第 ' + regeneratePointId + ' 段的完整大綱內容。' : 'Output only section ' + regeneratePointId + ' content.'}`.trim()
     : `
-請產生「段落式大綱」，**務必**照以下規則：
-1. 中文用「一、二、三…」，英文用「1. 2. 3.…」編號。
-2. 每節標題獨立一行，後面不加任何符號。
-3. 每節下至少 2–4 條「- 主要點」，可視需要在每條主要點下再加 a./b. 子要點（縮排兩空白）。
-4. 每個章節最後加 1 行補充說明，開頭寫 **"> 說明："**（提供脈絡與延伸，不要放連結）。
-5. 不要多餘空行。請盡可能具體而非空話。
+${isZH ? '請產生「段落式大綱」' : 'Generate a paragraph-style outline'}，**務必**照以下規則：
+1. ${isZH ? '中文用「一、二、三…」，英文用「1. 2. 3.…」編號。' : 'Use "1. 2. 3.…" numbering. All content in English.'}
+2. ${isZH ? '每節標題獨立一行。' : 'Each section title on its own line.'}
+3. ${isZH ? '每節下至少 2–4 條「- 主要點」，可視需要加 a./b. 子要點。' : '2–4 main bullets per section (each starting with "- "), optionally a./b. subpoints.'}
+4. ${isZH ? '每個章節最後加 1 行補充說明，開頭寫 **"> 說明："**。' : `Each section ends with one line starting **"${langNote}"** (provide context).`}
+5. ${isZH ? '不要多餘空行。請盡可能具體而非空話。' : 'No extra blank lines. Be specific and concrete.'}
 
-【需求】
-題目：${title}
-字數：約 ${wc}
-語言：${language}（語氣：${tone}）
-細節：${detail}
-引用：${reference}
-評分準則：${rubric}
-段落要求：${paragraph || '依內容合理規劃'} 段
+${langRule}
+
+【需求 / Requirements】
+題目/Title：${title}
+字數/Words：約 ${wc}
+語言/Language：${language}（語氣/Tone：${tone}）
+細節/Detail：${detail}
+引用/Reference：${reference}
+評分準則/Rubric：${rubric}
+段落要求：${paragraph || (isZH ? '依內容合理規劃' : 'Plan by content')} 段
 ${planHint ? '\n' + planHint : ''}
 
-【中文輸出範例】
+${isZH ? `【中文輸出範例】
 一、 引言
 - 介紹人工智慧（AI）的概念
   a. 定義：模擬人類認知的技術
@@ -574,9 +590,26 @@ ${planHint ? '\n' + planHint : ''}
 - 機器學習與深度學習
   a. ML：數據驅動模式識別
   b. DL：多層神經網路
-> 說明：本段釐清術語與範疇，降低誤解。
+> 說明：本段釐清術語與範疇，降低誤解。` : `【English Output Example】
+1. Introduction
+- Introduce the concept of artificial intelligence (AI)
+  a. Definition: technology that simulates human cognition
+  b. Key capabilities: learning, reasoning, perception
+- Discuss the importance of AI
+  a. Social impact: automation and efficiency
+  b. Economic impact: innovation and competition
+> Note: This section establishes the topic background and significance for the reader.
 
-請直接輸出大綱內容，不要額外說明。`.trim();
+2. Core Concepts of AI
+- Weak AI vs. Strong AI
+  a. Weak AI: task-specific, e.g. recommendation systems
+  b. Strong AI: general intelligence, still under research
+- Machine learning and deep learning
+  a. ML: data-driven pattern recognition
+  b. DL: multi-layer neural networks
+> Note: This section clarifies terminology and scope.`}
+
+${isZH ? '請直接輸出大綱內容，不要額外說明。' : 'Output the outline directly without extra explanation.'}`.trim();
 
 
   /* ---- call LLM (with fallback) ---- */

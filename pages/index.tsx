@@ -91,6 +91,33 @@ export default function HomePage() {
     },
   });
 
+  const isEN = form.language === '英文';
+  const t = isEN ? {
+    title: 'Paper Title', totalWords: 'Total Words', language: 'Language', tone: 'Tone',
+    settings: 'Assignment Settings', planner: 'Paragraph Planner', introWords: 'Intro Words', bodyCount: 'Body Count', conclusionWords: 'Conclusion Words',
+    body: (n: number) => `Body ${n}`, wordCount: 'Words', generalContent: 'General Content', describeContent: 'Describe content...',
+    total: 'Total', words: 'words', paragraphs: 'paragraphs', collapse: 'Collapse', expand: 'Expand',
+    contentDetail: 'Content Details', describeRequirements: 'Please describe your assignment requirements in detail...',
+    gradingCriteria: 'Grading Criteria', enterCriteria: 'Enter grading criteria',
+    aiFeatures: 'AI Features', generateOutline: 'Generate Outline', generateDraft: 'Generate Draft', teacherReview: 'Teacher Review',
+    revision: 'Revision', humanize: 'Humanize', editMode: 'Edit Mode', searchMode: 'Literature Search',
+    paragraphDesc: 'Paragraph Description (main purpose of this section)', egPlaceholder: 'e.g. This section establishes context and significance.',
+    detailedPoints: 'Detailed Points', add: 'Add', regenerate: 'Regenerate', generating: 'Generating...',
+    addPoint: 'Add Point', editPoints: 'Edit bullet points...',
+  } : {
+    title: '論文標題', totalWords: '總字數', language: '語言', tone: '語氣',
+    settings: '功課設定', planner: '段落規劃器', introWords: '引言字數', bodyCount: '主體數量', conclusionWords: '結論字數',
+    body: (n: number) => `主體${n}`, wordCount: '字數', generalContent: '大致內容', describeContent: '描述內容...',
+    total: '總計', words: '字', paragraphs: '段', collapse: '收起', expand: '展開',
+    contentDetail: '內容細節', describeRequirements: '請詳細描述您的作業要求...',
+    gradingCriteria: '評分標準', enterCriteria: '請輸入評分標準',
+    aiFeatures: 'AI 功能', generateOutline: '產生大綱', generateDraft: '草稿產生', teacherReview: '教師評論',
+    revision: '修訂稿', humanize: '人性化', editMode: '編輯模式', searchMode: '文獻搜尋模式',
+    paragraphDesc: '段落描述（說明本段的主要功能和目的）', egPlaceholder: '例如：本段建立主題背景與重要性，為後文鋪陳。',
+    detailedPoints: '詳細要點', add: '添加', regenerate: '重新生成', generating: '生成中...',
+    addPoint: '添加要點', editPoints: '編輯詳細要點...',
+  };
+
   const [activeTab, setActiveTab] = useState<'outline' | 'draft' | 'review' | 'revision' | 'final'>('outline');
   const [mode, setMode] = useState('edit');
   const [lockedTabs, setLockedTabs] = useState({
@@ -103,6 +130,7 @@ export default function HomePage() {
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedContent, setGeneratedContent] = useState('');
+  const [generatedContentZh, setGeneratedContentZh] = useState('');
   const [draftSections, setDraftSections] = useState<{[key: number]: string | {en: string, zh: string}}>({});
   const [currentGeneratingSection, setCurrentGeneratingSection] = useState<number | null>(null);
   const [selectedModel, setSelectedModel] = useState('gpt-5');
@@ -1525,9 +1553,11 @@ ${sectionReferenceText}
       
       if (type === 'full') {
         setGeneratedContent(cleanedDraft);
+        const cleanedDraftZh = (data.draftZh || '').trim();
+        if (cleanedDraftZh) setGeneratedContentZh(cleanedDraftZh);
         
         const draftText = cleanedDraft;
-        const newDraftSections: Record<number, string> = {};
+        const newDraftSectionsEn: Record<number, string> = {};
         
         const sectionPatterns = outlinePoints.map((point, index) => {
           const titleEscaped = point.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -1564,39 +1594,73 @@ ${sectionReferenceText}
             sectionContent = sectionContent.replace(titlePattern, '').trim();
             
             if (sectionContent) {
-              newDraftSections[boundary.sectionId] = postProcessDraftContent(sectionContent, boundary.sectionId);
+              newDraftSectionsEn[boundary.sectionId] = postProcessDraftContent(sectionContent, boundary.sectionId);
             }
           });
         }
         
-        if (Object.keys(newDraftSections).length === 0) {
-          console.log('按标题分割失败，尝试按段落分割');
-          
+        if (Object.keys(newDraftSectionsEn).length === 0) {
           const draftParts = draftText.split(/\n\s*\n/);
-          console.log('分割后的段落数量:', draftParts.length);
-          
           outlinePoints.forEach((point, index) => {
             if (draftParts[index]) {
-              newDraftSections[point.id] = postProcessDraftContent(draftParts[index].trim(), point.id);
+              newDraftSectionsEn[point.id] = postProcessDraftContent(draftParts[index].trim(), point.id);
             }
           });
         }
         
-        if (Object.keys(newDraftSections).length === 0) {
-          console.log('按段落分割失败，尝试按句子分割');
-          
-          const sentences = draftText.split(/[。！？]/).filter((s: string) => s.trim().length > 10);
+        if (Object.keys(newDraftSectionsEn).length === 0) {
+          const sentences = draftText.split(/[。！？.!?]/).filter((s: string) => s.trim().length > 10);
           const sentencesPerSection = Math.ceil(sentences.length / outlinePoints.length);
-          
           outlinePoints.forEach((point, index) => {
             const startIndex = index * sentencesPerSection;
             const endIndex = Math.min(startIndex + sentencesPerSection, sentences.length);
             const sectionSentences = sentences.slice(startIndex, endIndex);
-            
             if (sectionSentences.length > 0) {
-              newDraftSections[point.id] = postProcessDraftContent(sectionSentences.join('。') + '。', point.id);
+              newDraftSectionsEn[point.id] = postProcessDraftContent(sectionSentences.join('. ') + '.', point.id);
             }
           });
+        }
+        
+        let newDraftSections: Record<number, string | { en: string; zh: string }> = {};
+        if (cleanedDraftZh) {
+          const newDraftSectionsZh: Record<number, string> = {};
+          const zhBoundaries: { index: number; sectionId: number }[] = [];
+          sectionPatterns.forEach(({ point, patterns }) => {
+            patterns.forEach(pattern => {
+              const match = cleanedDraftZh.match(pattern);
+              if (match) {
+                zhBoundaries.push({ index: match.index!, sectionId: point.id });
+              }
+            });
+          });
+          zhBoundaries.sort((a, b) => a.index - b.index);
+          if (zhBoundaries.length > 0) {
+            zhBoundaries.forEach((boundary, i) => {
+              const nextBoundary = zhBoundaries[i + 1];
+              let sectionContent = cleanedDraftZh.substring(boundary.index, nextBoundary ? nextBoundary.index : cleanedDraftZh.length).trim();
+              sectionContent = sectionContent.replace(/^\s*\d+\.\s*.*?\n?/i, '').trim();
+              if (sectionContent) {
+                newDraftSectionsZh[boundary.sectionId] = postProcessDraftContent(sectionContent, boundary.sectionId);
+              }
+            });
+          }
+          if (Object.keys(newDraftSectionsZh).length === 0) {
+            const zhParts = cleanedDraftZh.split(/\n\s*\n/);
+            outlinePoints.forEach((point, index) => {
+              if (zhParts[index]) {
+                newDraftSectionsZh[point.id] = postProcessDraftContent(zhParts[index].trim(), point.id);
+              }
+            });
+          }
+          outlinePoints.forEach(point => {
+            const en = newDraftSectionsEn[point.id];
+            const zh = newDraftSectionsZh[point.id];
+            if (en || zh) {
+              newDraftSections[point.id] = { en: en || zh || '', zh: zh || en || '' };
+            }
+          });
+        } else {
+          newDraftSections = newDraftSectionsEn;
         }
         
         console.log('分解结果:', newDraftSections);
@@ -1828,6 +1892,8 @@ ${sectionReferenceText}
         Hook: form.language === '中文' 
           ? `你是一位學術寫作助手。請為論文《${form.title}》的引言部分生成一個 Hook（引子）要點。
 
+⚠️ 必須完全使用中文輸出，不得混用英文。
+
 要求：
 - 指出主題在數位時代的重要性
 - 例如：網站如何成為資訊、溝通與商業活動的核心工具
@@ -1841,11 +1907,13 @@ ${currentOutlineText}
 請只輸出要點內容，不要包含任何標籤或編號。`
           : `You are an academic writing assistant. Generate a Hook bullet point for the introduction section of the essay "${form.title}".
 
+⚠️ CRITICAL: Output must be 100% in English only. No Chinese or mixed languages.
+
 Requirements:
 - Highlight the importance of the topic in the digital age
 - Example: how websites have become core tools for information, communication, and business activities
 - Should be engaging but not off-topic
-- Output only the bullet point content, without any label prefix (do not include "Hook:" or "引子:")
+- Output only the bullet point content, without any label prefix
 - Keep it concise, 1-2 sentences
 
 Current outline context:
@@ -1854,6 +1922,8 @@ ${currentOutlineText}
 Output only the bullet point content, without any labels or numbering.`,
         Background: form.language === '中文'
           ? `你是一位學術寫作助手。請為論文《${form.title}》的引言部分生成一個 Background（背景）要點。
+
+⚠️ 必須完全使用中文輸出，不得混用英文。
 
 要求：
 - 定義主題、說明基本構成（如 HTML、CSS、JavaScript + media files）、或常見用途（資訊、溝通、電商）
@@ -1867,10 +1937,12 @@ ${currentOutlineText}
 請只輸出要點內容，不要包含任何標籤或編號。`
           : `You are an academic writing assistant. Generate a Background bullet point for the introduction section of the essay "${form.title}".
 
+⚠️ CRITICAL: Output must be 100% in English only. No Chinese or mixed languages.
+
 Requirements:
 - Define the topic, explain basic components (e.g., HTML, CSS, JavaScript + media files), or common uses (information, communication, e-commerce)
 - Should provide essential context for understanding the topic
-- Output only the bullet point content, without any label prefix (do not include "Background:" or "背景:")
+- Output only the bullet point content, without any label prefix
 - Keep it concise, 1-2 sentences
 
 Current outline context:
@@ -1879,6 +1951,8 @@ ${currentOutlineText}
 Output only the bullet point content, without any labels or numbering.`,
         Thesis: form.language === '中文'
           ? `你是一位學術寫作助手。請為論文《${form.title}》的引言部分生成一個 Thesis（論點）要點。
+
+⚠️ 必須完全使用中文輸出，不得混用英文。
 
 要求：
 - 說明本文將探討主題的本質、組成、用途與在現代社會中的重要性
@@ -1892,10 +1966,12 @@ ${currentOutlineText}
 請只輸出要點內容，不要包含任何標籤或編號。`
           : `You are an academic writing assistant. Generate a Thesis bullet point for the introduction section of the essay "${form.title}".
 
+⚠️ CRITICAL: Output must be 100% in English only. No Chinese or mixed languages.
+
 Requirements:
 - State that the essay will explore the nature, composition, uses, and importance of the topic in modern society
 - Should clearly indicate the essay's direction
-- Output only the bullet point content, without any label prefix (do not include "Thesis:" or "論點:")
+- Output only the bullet point content, without any label prefix
 - Keep it concise, 1-2 sentences
 
 Current outline context:
@@ -2996,8 +3072,9 @@ ${ref.year ? `年份：${ref.year}` : ''}
         displayResults = convertedResults.filter(ref => excludeBlocked(ref)).slice(0, 10);
       }
 
-      // AI 排序：從結果中挑選最相關的 3 篇（當結果超過 3 筆時）
-      if (displayResults.length > 3) {
+      // AI 選擇：從結果中挑選最相關的 3 篇（當結果 ≥ 3 筆時由 AI 排序）
+      let aiRanked = false;
+      if (displayResults.length >= 3) {
         try {
           const rankRes = await fetch('/api/references/rank', {
             method: 'POST',
@@ -3018,12 +3095,15 @@ ${ref.year ? `年份：${ref.year}` : ''}
           });
           if (rankRes.ok) {
             const { rankedIds } = await rankRes.json();
-            const orderMap = new Map<string, number>(rankedIds.map((id: string, i: number) => [id, i]));
-            displayResults = [...displayResults].sort((a, b) => {
-              const ai = orderMap.get(String(a.id)) ?? 999;
-              const bi = orderMap.get(String(b.id)) ?? 999;
-              return Number(ai) - Number(bi);
-            }).slice(0, 6);
+            if (rankedIds && rankedIds.length > 0) {
+              const orderMap = new Map<string, number>(rankedIds.map((id: string, i: number) => [id, i]));
+              displayResults = [...displayResults].sort((a, b) => {
+                const ai = orderMap.get(String(a.id)) ?? 999;
+                const bi = orderMap.get(String(b.id)) ?? 999;
+                return Number(ai) - Number(bi);
+              }).slice(0, 6);
+              aiRanked = true;
+            }
           }
         } catch (e) {
           console.warn('AI 排序失敗，使用原始順序:', e);
@@ -3043,9 +3123,8 @@ ${ref.year ? `年份：${ref.year}` : ''}
       setSearchResults(verifiedResults);
       
       // 自动将搜索结果添加到对应的bullet point（如果提供了bulletKey）
-      // 注意：旧参考文献已经在搜索开始时清除了
+      // 注意：displayResults 已依 AI 排序，前 3 篇為 AI 選出的最相關文獻
       if (bulletKey && verifiedResults.length > 0) {
-        // 添加前3篇文献到该bullet point
         const topResults = verifiedResults.slice(0, 3);
         for (const ref of topResults) {
           await addReferenceToPoint(pointId, ref, bulletKey);
@@ -3061,8 +3140,8 @@ ${ref.year ? `年份：${ref.year}` : ''}
           show: true,
           type: 'success',
           title: '搜索完成！',
-          message: `成功找到 ${verifiedResults.length} 篇已验证的高质量文献。${bulletKey ? '已自动添加前3篇文献到对应段落。' : ''}`,
-          details: ['所有显示的文献都包含真实摘要和准确的中文概述。', '您可以查看并选择需要引用的文献。']
+          message: `成功找到 ${verifiedResults.length} 篇已验证的高质量文献。${bulletKey ? (aiRanked ? 'AI已自動選擇最相關的3篇文獻並添加到對應段落。' : '已自動添加前3篇文獻到對應段落。') : ''}`,
+          details: ['所有显示的文献都包含真实摘要和准确的中文概述。', aiRanked ? '文獻已依 AI 相關度排序，您可查看並選擇需引用的文獻。' : '您可以查看并选择需要引用的文献。']
         });
       } else if (verifiedResults.length > 0) {
         setSearchResultModal({
@@ -3632,6 +3711,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
         searchResults,
         draftSections,        // ✅ 保存已生成的草稿段落
         generatedContent,     // ✅ 保存完整初稿内容
+        generatedContentZh,   // ✅ 保存完整初稿中文版
         selectedModel,        // ✅ 保存选择的AI模型
         reviewContent,         // ✅ 保存教师评论内容（向后兼容）
         reviewSections,        // ✅ 保存分段评论
@@ -3661,6 +3741,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
         if (parsedData.searchResults) setSearchResults(parsedData.searchResults);
         if (parsedData.draftSections) setDraftSections(parsedData.draftSections);        // ✅ 加载已生成的草稿段落
         if (parsedData.generatedContent) setGeneratedContent(parsedData.generatedContent); // ✅ 加载完整初稿内容
+        if (parsedData.generatedContentZh) setGeneratedContentZh(parsedData.generatedContentZh); // ✅ 加载完整初稿中文版
         if (parsedData.selectedModel) setSelectedModel(parsedData.selectedModel);          // ✅ 加载选择的AI模型
         if (parsedData.reviewContent) setReviewContent(parsedData.reviewContent);          // ✅ 加载教师评论内容（向后兼容）
         if (parsedData.reviewSections) setReviewSections(parsedData.reviewSections);      // ✅ 加载分段评论
@@ -4209,15 +4290,35 @@ ${ref.year ? `年份：${ref.year}` : ''}
     return generatedContent?.trim() || '';
   }, [outlinePoints, draftSections, generatedContent]);
 
-  // ✅ 完整初稿中文版（暂时使用英文版本，后续可以从草稿生成API获取）
+  // ✅ 完整初稿中文版（從 draftSections 的 zh 或 generatedContentZh 取得）
   const fullDraftTextZh = useMemo(() => {
-    // 目前先使用英文版本，后续可以从API获取中文版本
-    return fullDraftTextEn;
-  }, [fullDraftTextEn]);
+    if (outlinePoints.length === 0) {
+      return generatedContentZh?.trim() || '';
+    }
+
+    const sections: string[] = [];
+    let hasSectionContent = false;
+
+    outlinePoints.forEach(point => {
+      const sectionValue = draftSections[point.id];
+      const sectionContent = (typeof sectionValue === 'string' ? '' : (sectionValue?.zh || '')).trim();
+      if (sectionContent) hasSectionContent = true;
+      const header = `${point.id}. ${point.title}${
+        point.wordCount ? ` (≈ ${point.wordCount} 字)` : ''
+      }`;
+      sections.push(`${header}\n${sectionContent || '（尚未生成內容）'}`);
+    });
+
+    if (hasSectionContent) {
+      return sections.join('\n\n');
+    }
+
+    return generatedContentZh?.trim() || '';
+  }, [outlinePoints, draftSections, generatedContentZh]);
 
   return (
     <div className="min-h-screen" style={{ background: 'linear-gradient(160deg, #0f172a 0%, #1e293b 35%, #2d3748 70%, #1a365d 100%)', backgroundAttachment: 'fixed' }}>
-      <TopNavigation />
+      <TopNavigation uiLang={form.language} />
       
       <div className="pt-16 px-6">
         <div className="flex">
@@ -4225,12 +4326,12 @@ ${ref.year ? `年份：${ref.year}` : ''}
           <div className="w-96 border-r border-slate-500/50 p-4 min-h-screen overflow-y-auto" style={{ backgroundColor: 'rgba(30, 41, 59, 0.95)', boxShadow: '4px 0 24px rgba(0,0,0,0.15)' }}>
             <div className="rounded-xl shadow-lg p-4" style={{ backgroundColor: 'rgba(51, 65, 85, 0.9)', border: '1px solid rgba(148, 163, 184, 0.2)' }}>
               <div className="flex items-center justify-between mb-4">
-                <h2 className="font-bold text-lg bg-gradient-to-r from-amber-400 to-yellow-300 bg-clip-text text-transparent">功課設定</h2>
+                <h2 className="font-bold text-lg bg-gradient-to-r from-amber-400 to-yellow-300 bg-clip-text text-transparent">{t.settings}</h2>
                 <button
                   onClick={() => setForm(prev => ({ ...prev, settingsExpanded: !prev.settingsExpanded }))}
                   className="text-white bg-slate-600 border-2 border-slate-400 rounded px-3 py-1 hover:bg-slate-500 hover:border-slate-300 transition-colors shadow-lg"
                 >
-                  {form.settingsExpanded ? '收起' : '展開'}
+                  {form.settingsExpanded ? t.collapse : t.expand}
                 </button>
               </div>
               
@@ -4239,13 +4340,13 @@ ${ref.year ? `年份：${ref.year}` : ''}
           {/* 標題輸入 */}
           <div className="mb-4">
             <label className="block text-sm font-medium text-white mb-2">
-              論文標題
+              {t.title}
             </label>
                     <input
                       type="text"
                       value={form.title}
               onChange={(e) => setForm(prev => ({ ...prev, title: e.target.value }))}
-              placeholder="請輸入您的論文標題"
+              placeholder={isEN ? 'Enter your paper title' : '請輸入您的論文標題'}
               className="w-full px-4 py-3 bg-slate-700 text-white border border-slate-600 rounded-lg focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-colors"
                     />
                   </div>
@@ -4253,7 +4354,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
           {/* 總字數 */}
           <div className="mb-4">
             <label className="block text-sm font-medium text-white mb-2">
-              總字數
+              {t.totalWords}
             </label>
             <input
               type="number"
@@ -4266,61 +4367,61 @@ ${ref.year ? `年份：${ref.year}` : ''}
           {/* 語言選擇 */}
           <div className="mb-4">
             <label className="block text-sm font-medium text-white mb-2">
-              語言
+              {t.language}
             </label>
             <select
               value={form.language}
               onChange={(e) => setForm(prev => ({ ...prev, language: e.target.value }))}
               className="w-full px-4 py-3 bg-slate-700 text-white border border-slate-600 rounded-lg focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-colors"
             >
-              <option value="中文">中文</option>
-              <option value="英文">英文</option>
+              <option value="中文">{isEN ? 'Chinese' : '中文'}</option>
+              <option value="英文">{isEN ? 'English' : '英文'}</option>
             </select>
           </div>
 
           {/* 語氣選擇 */}
           <div className="mb-6">
             <label className="block text-sm font-medium text-white mb-2">
-              語氣
+              {t.tone}
             </label>
             <select
               value={form.tone}
               onChange={(e) => setForm(prev => ({ ...prev, tone: e.target.value }))}
               className="w-full px-4 py-3 bg-slate-700 text-white border border-slate-600 rounded-lg focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-colors"
             >
-              <option value="正式">正式</option>
-              <option value="非正式">非正式</option>
-              <option value="學術">學術</option>
+              <option value="正式">{isEN ? 'Formal' : '正式'}</option>
+              <option value="非正式">{isEN ? 'Informal' : '非正式'}</option>
+              <option value="學術">{isEN ? 'Academic' : '學術'}</option>
             </select>
           </div>
 
           {/* 段落規劃器 */}
           <div className="rounded-lg p-3 mb-6" style={{ backgroundColor: 'rgba(20, 184, 166, 0.15)', border: '1px solid rgba(20, 184, 166, 0.3)' }}>
                     <div className="flex items-center justify-between mb-2">
-                      <h3 className="font-bold text-base text-cyan-200">🧭 段落規劃器</h3>
+                      <h3 className="font-bold text-base text-cyan-200">🧭 {t.planner}</h3>
                       <button
                         onClick={() => setForm({ ...form, plannerExpanded: !form.plannerExpanded })}
                         className="text-white bg-slate-600 border-2 border-slate-400 rounded px-2 py-1 hover:bg-slate-500 hover:border-slate-300 transition-colors shadow-lg"
                       >
-                        {form.plannerExpanded ? '收起' : '展開'}
+                        {form.plannerExpanded ? t.collapse : t.expand}
                       </button>
                     </div>
                     
                     {!form.plannerExpanded ? (
                       <div className="text-center text-sm text-slate-300">
                         <div className="grid grid-cols-3 gap-2 text-xs">
-                          <div>引言: {form.introWords || 140}字</div>
-                          <div>主體: {form.bodyCount || 3}段</div>
-                          <div>結論: {form.conclusionWords || 140}字</div>
+                          <div>{isEN ? 'Intro' : '引言'}: {form.introWords || 140}{t.words}</div>
+                          <div>{isEN ? 'Body' : '主體'}: {form.bodyCount || 3}{isEN ? ' para' : '段'}</div>
+                          <div>{isEN ? 'Conclusion' : '結論'}: {form.conclusionWords || 140}{t.words}</div>
                         </div>
                         <div className="mt-1 flex items-center justify-between">
-                          <span>總計: {form.totalWords || 1000}字</span>
+                          <span>{t.total}: {form.totalWords || 1000}{t.words}</span>
                         </div>
                       </div>
                     ) : (
                       <div className="space-y-3">
                         <div>
-                          <label className="block text-xs font-medium text-slate-300 mb-1">引言字數</label>
+                          <label className="block text-xs font-medium text-slate-300 mb-1">{t.introWords}</label>
                           <input
                             type="number"
                             value={form.introWords || 140}
@@ -4330,25 +4431,25 @@ ${ref.year ? `年份：${ref.year}` : ''}
                         </div>
                         
                         <div>
-                          <label className="block text-xs font-medium text-slate-300 mb-1">主體數量</label>
+                          <label className="block text-xs font-medium text-slate-300 mb-1">{t.bodyCount}</label>
                           <select 
                             className="w-full border border-slate-500 rounded-lg px-2 py-1 text-xs focus:border-blue-400 focus:ring-blue-400 bg-slate-600 text-white"
                             value={form.bodyCount || 3}
                             onChange={(e) => setForm({ ...form, bodyCount: parseInt(e.target.value) || 3 })}
                           >
-                            <option value="2">2段</option>
-                            <option value="3">3段</option>
-                            <option value="4">4段</option>
-                            <option value="5">5段</option>
+                            <option value="2">{isEN ? '2 para' : '2段'}</option>
+                            <option value="3">{isEN ? '3 para' : '3段'}</option>
+                            <option value="4">{isEN ? '4 para' : '4段'}</option>
+                            <option value="5">{isEN ? '5 para' : '5段'}</option>
                           </select>
                         </div>
                         
                         {Array.from({ length: form.bodyCount || 3 }, (_, index) => (
                           <div key={index} className="border border-slate-500 rounded-lg p-2 bg-slate-600">
-                            <div className="text-xs font-medium text-white mb-1">主體{index + 1}</div>
+                            <div className="text-xs font-medium text-white mb-1">{t.body(index + 1)}</div>
                             <div className="grid grid-cols-2 gap-2 mb-2">
                               <div>
-                                <label className="block text-xs text-slate-300 mb-1">字數</label>
+                                <label className="block text-xs text-slate-300 mb-1">{t.wordCount}</label>
                                 <input
                                   type="number"
                                   value={form.bodyWords?.[index] || 240}
@@ -4361,10 +4462,10 @@ ${ref.year ? `年份：${ref.year}` : ''}
                                 />
                               </div>
                               <div>
-                                <label className="block text-xs text-slate-300 mb-1">大致內容</label>
+                                <label className="block text-xs text-slate-300 mb-1">{t.generalContent}</label>
                                 <input
                                   type="text"
-                                  placeholder="描述內容..."
+                                  placeholder={t.describeContent}
                                   value={form.bodyContent?.[index] || ''}
                                   className="w-full border border-slate-500 rounded-lg px-2 py-1 text-xs bg-slate-600 text-white"
                                   onChange={(e) => {
@@ -4379,7 +4480,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
                         ))}
                         
                         <div>
-                          <label className="block text-xs font-medium text-slate-300 mb-1">結論字數</label>
+                          <label className="block text-xs font-medium text-slate-300 mb-1">{t.conclusionWords}</label>
                           <input
                             type="number"
                             value={form.conclusionWords || 140}
@@ -4389,7 +4490,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
                         </div>
                         
                         <div className="text-center text-xs text-slate-300">
-                          總計: {form.totalWords || 1000}字
+                          {t.total}: {form.totalWords || 1000}{t.words}
                         </div>
                       </div>
                     )}
@@ -4397,9 +4498,9 @@ ${ref.year ? `年份：${ref.year}` : ''}
 
           {/* 內容細節 */}
           <div className="mb-6">
-            <label className="block text-sm font-medium text-white mb-2">內容細節</label>
+            <label className="block text-sm font-medium text-white mb-2">{t.contentDetail}</label>
                       <textarea
-                        placeholder="請詳細描述您的作業要求..."
+                        placeholder={t.describeRequirements}
               className="w-full px-4 py-3 bg-slate-700 text-white border border-slate-600 rounded-lg focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-colors min-h-[80px] resize-none"
                         value={form.detail}
                         onChange={(e) => setForm({ ...form, detail: e.target.value })}
@@ -4408,10 +4509,10 @@ ${ref.year ? `年份：${ref.year}` : ''}
 
           {/* 評分標準 */}
           <div className="mb-6">
-            <label className="block text-sm font-medium text-white mb-2">評分標準</label>
+            <label className="block text-sm font-medium text-white mb-2">{t.gradingCriteria}</label>
                       <input
                         type="text"
-                        placeholder="請輸入評分標準"
+                        placeholder={t.enterCriteria}
               className="w-full px-4 py-3 bg-slate-700 text-white border border-slate-600 rounded-lg focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-colors"
                         value={form.rubric}
                         onChange={(e) => setForm({ ...form, rubric: e.target.value })}
@@ -4424,7 +4525,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
 
             {/* -------- AI 功能 -------- */}
             <div className="bg-slate-700 rounded-lg shadow-lg p-4 mt-4">
-              <h3 className="font-bold text-base bg-gradient-to-r from-amber-400 to-yellow-300 bg-clip-text text-transparent mb-4">AI 功能</h3>
+              <h3 className="font-bold text-base bg-gradient-to-r from-amber-400 to-yellow-300 bg-clip-text text-transparent mb-4">{t.aiFeatures}</h3>
               
               <div className="space-y-2">
                 <div>
@@ -4483,6 +4584,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
                             setOutlinePoints(normalizedPoints);
                             // 清空完整初稿區，避免顯示大綱內容
                             setGeneratedContent('');
+                            setGeneratedContentZh('');
                             
                             // 检查是否有警告（数据库保存失败）
                             if (data.warning) {
@@ -4625,7 +4727,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
                       disabled={lockedTabs.outline}
                         className="mr-2"
                       />
-                    <span className={lockedTabs.outline ? 'text-slate-500' : 'text-white'}>編輯模式</span>
+                    <span className={lockedTabs.outline ? 'text-slate-500' : 'text-white'}>{t.editMode}</span>
                     </label>
                     <label className="flex items-center">
                       <input
@@ -4637,7 +4739,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
                       disabled={lockedTabs.outline}
                         className="mr-2"
                       />
-                    <span className={lockedTabs.outline ? 'text-slate-500' : 'text-white'}>文獻搜尋模式</span>
+                    <span className={lockedTabs.outline ? 'text-slate-500' : 'text-white'}>{t.searchMode}</span>
                     </label>
                   </div>
                 )}
@@ -4659,20 +4761,20 @@ ${ref.year ? `年份：${ref.year}` : ''}
                                     ? 'bg-slate-600 text-slate-400 cursor-not-allowed'
                                     : 'bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-400 hover:to-blue-500 border border-blue-400'
                                 }`}
-                                title="重新生成此段落的大綱"
+                                title={isEN ? 'Regenerate this section outline' : '重新生成此段落的大綱'}
                               >
                                 {isGenerating && currentGeneratingSection === point.id ? (
                                   <>
                                     <span className="inline-block animate-spin mr-1">🔄</span>
-                                    生成中...
+                                    {t.generating}
                                   </>
                                 ) : (
-                                  '🔄 重新生成'
+                                  `🔄 ${t.regenerate}`
                                 )}
                               </button>
                             </div>
                             <div className="mt-2">
-                              <label className="block text-xs text-slate-400 mb-1">段落描述（說明本段的主要功能和目的）</label>
+                              <label className="block text-xs text-slate-400 mb-1">{t.paragraphDesc}</label>
                             <textarea
                               value={point.content}
                               onChange={(e) => {
@@ -4682,14 +4784,14 @@ ${ref.year ? `年份：${ref.year}` : ''}
                               }}
                                 className="w-full px-3 py-2 bg-slate-600 border border-slate-500 rounded text-white placeholder-slate-400 focus:border-blue-400 focus:ring-1 focus:ring-blue-400 text-sm resize-y"
                                 rows={2}
-                                placeholder="例如：本段建立主題背景與重要性，為後文鋪陳。"
+                                placeholder={t.egPlaceholder}
                               />
                             </div>
                             
                             {/* 詳細要點 */}
                             {point.bulletPoints && point.bulletPoints.length > 0 && (
                             <div className="mt-3 p-3 bg-slate-600 rounded border border-slate-500">
-                              <h5 className="text-sm font-medium text-white mb-2">📝 詳細要點</h5>
+                              <h5 className="text-sm font-medium text-white mb-2">📝 {t.detailedPoints}</h5>
                               
                               {/* 引言部分：使用 Hook, Background, Thesis 標籤 */}
                               {point.id === 1 ? (
@@ -4713,7 +4815,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
                                             生成中...
                                           </>
                                         ) : (
-                                          '➕ 添加'
+                                          `➕ ${t.add}`
                                         )}
                                       </button>
                                     </div>
@@ -4791,7 +4893,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
                                       }}
                                       className="flex-1 px-2 py-1 bg-slate-700 border border-slate-500 rounded text-white placeholder-slate-400 focus:border-blue-400 focus:ring-blue-400 text-xs"
                                       rows={1}
-                                              placeholder="編輯 Hook 要點..."
+                                              placeholder={isEN ? 'Edit Hook point...' : '編輯 Hook 要點...'}
                                     />
                                     <button
                                       onClick={() => handleRegenerateBulletPoint(point.id, idx, 'Hook')}
@@ -4846,7 +4948,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
                                             生成中...
                                           </>
                                         ) : (
-                                          '➕ 添加'
+                                          `➕ ${t.add}`
                                         )}
                                   </button>
                                 </div>
@@ -4983,7 +5085,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
                                             生成中...
                                           </>
                                         ) : (
-                                          '➕ 添加'
+                                          `➕ ${t.add}`
                                         )}
                                   </button>
                           </div>
@@ -5108,7 +5210,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
                                           }}
                                           className="flex-1 px-2 py-1 bg-slate-700 border border-slate-500 rounded text-white placeholder-slate-400 focus:border-blue-400 focus:ring-blue-400 text-xs"
                                           rows={1}
-                                          placeholder="編輯詳細要點..."
+                                          placeholder={t.editPoints}
                                         />
                                       <button
                                         onClick={() => {
@@ -5138,7 +5240,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
                                       className="flex items-center px-3 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors"
                                       >
                                       <span className="mr-2">➕</span>
-                                      添加詳細要點
+                                      {t.addPoint}
                                       </button>
                                     </div>
                                 </>
@@ -5149,7 +5251,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
                             {/* 如果没有详细要点，显示添加按钮 */}
                             {(!point.bulletPoints || point.bulletPoints.length === 0) && (
                           <div className="mt-3 p-3 bg-slate-600 rounded border border-slate-500">
-                                <h5 className="text-sm font-medium text-white mb-2">📝 詳細要點</h5>
+                                <h5 className="text-sm font-medium text-white mb-2">📝 {t.detailedPoints}</h5>
                                 
                                 {/* 引言部分：顯示三個標籤的添加按鈕 */}
                                 {point.id === 1 ? (
@@ -6390,51 +6492,37 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                           <div className="mb-3 p-3 bg-slate-800 rounded border border-slate-500">
                             <div className="flex items-center justify-between mb-2">
                               <h5 className="text-sm font-medium text-green-300">
-                                ✨ 已生成內容 ({draftLang === 'en' ? '英文' : '中文'}) 
+                                ✨ 已生成內容 ({isEN ? 'English' : '中文'}) 
                                 <span className="text-xs text-slate-400 ml-2">
                                   {(() => {
                                     const sectionData = draftSections[point.id];
                                     const displayContent = typeof sectionData === 'string' 
                                       ? sectionData 
-                                      : (draftLang === 'en' ? sectionData.en : sectionData.zh) || '';
-                                    const wordCount = countText(displayContent, draftLang === 'zh');
-                                    return draftLang === 'zh' ? `(${wordCount} 字)` : `(${wordCount} words)`;
+                                      : (form.language === '英文' ? (sectionData.en || sectionData.zh || '') : (sectionData.zh || sectionData.en || ''));
+                                    const wordCount = countText(displayContent, form.language === '中文');
+                                    return form.language === '中文' ? `(${wordCount} 字)` : `(${wordCount} words)`;
                                   })()}
                                 </span>
                               </h5>
                               <div className="flex gap-2">
                                 <button
-                                  onClick={() => setDraftLang(prev => prev === 'en' ? 'zh' : 'en')}
-                                  className={`px-2 py-1 text-xs rounded transition-colors ${
-                                    draftLang === 'en'
-                                      ? 'bg-blue-600 text-white hover:bg-blue-500'
-                                      : 'bg-green-600 text-white hover:bg-green-500'
-                                  }`}
-                                >
-                                  {draftLang === 'en' ? '🇨🇳 切換中文' : '🇺🇸 Switch EN'}
-                                </button>
-                                <button
                                   onClick={() => {
                                     const sectionData = draftSections[point.id];
+                                    const langKey = form.language === '英文' ? 'en' : 'zh';
                                     const currentContent = typeof sectionData === 'string' 
                                       ? sectionData 
-                                      : (draftLang === 'en' ? sectionData.en : sectionData.zh) || '';
-                                    const newContent = prompt(`編輯草稿內容 (${draftLang === 'en' ? 'English' : '中文'}):`, currentContent);
+                                      : ((langKey === 'en' ? sectionData.en : sectionData.zh) || sectionData.en || sectionData.zh || '');
+                                    const newContent = prompt(`編輯草稿內容 (${form.language === '英文' ? 'English' : '中文'}):`, currentContent);
                                     if (newContent !== null) {
                                       if (typeof sectionData === 'string') {
-                                        // 旧格式转换为新格式
-                                        setDraftSections(prev => {
-                                          const prevValue = prev[point.id];
-                                          const prevEn = typeof prevValue === 'string' ? prevValue : (prevValue?.en || '');
-                                          const prevZh = typeof prevValue === 'string' ? prevValue : (prevValue?.zh || '');
-                                          return {
-                                            ...prev,
-                                            [point.id]: {
-                                              en: draftLang === 'en' ? newContent : prevEn,
-                                              zh: draftLang === 'zh' ? newContent : prevZh,
-                                            }
-                                          };
-                                        });
+                                        const oldStr = sectionData;
+                                        setDraftSections(prev => ({
+                                          ...prev,
+                                          [point.id]: {
+                                            en: form.language === '英文' ? newContent : oldStr,
+                                            zh: form.language === '中文' ? newContent : oldStr,
+                                          }
+                                        }));
                                       } else {
                                         setDraftSections(prev => {
                                           const prevValue = prev[point.id];
@@ -6443,7 +6531,7 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                                             ...prev,
                                             [point.id]: {
                                               ...prevObj,
-                                              [draftLang]: newContent
+                                              [langKey]: newContent
                                             }
                                           };
                                         });
@@ -6460,31 +6548,13 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                             <div className="text-slate-300 text-sm leading-relaxed whitespace-pre-wrap">
                               {(() => {
                                 const sectionData = draftSections[point.id];
-                                if (typeof sectionData === 'string') {
-                                  return sectionData;
-                                }
-                                return draftLang === 'en' 
+                                if (typeof sectionData === 'string') return sectionData;
+                                return form.language === '英文' 
                                   ? (sectionData.en || sectionData.zh || '') 
                                   : (sectionData.zh || sectionData.en || '');
                               })()}
                             </div>
                             <div className="mt-2 flex gap-2">
-                              <button
-                                onClick={() => {
-                                  const currentValue = draftSections[point.id];
-                                  const currentText = typeof currentValue === 'string' ? currentValue : (currentValue?.en || currentValue?.zh || '');
-                                  const newContent = prompt('编辑生成的内容:', currentText);
-                                  if (newContent !== null) {
-                                    setDraftSections(prev => ({
-                                      ...prev,
-                                      [point.id]: newContent
-                                    }));
-                                  }
-                                }}
-                                className="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors"
-                              >
-                                ✏️ 编辑
-                              </button>
                               <button
                                 onClick={() => {
                                   setDraftSections(prev => {
@@ -6745,34 +6815,25 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                                 <div className="p-3 bg-slate-800 rounded border border-slate-500">
                                   <div className="flex items-center justify-between mb-2">
                                     <h5 className="text-sm font-medium text-amber-300">
-                                      ✨ 修訂稿內容 ({revisionLang === 'en' ? '英文' : '中文'})
+                                      ✨ 修訂稿內容 ({form.language === '英文' ? 'English' : '中文'})
                                       <span className="text-xs text-slate-400 ml-2">
                                         {(() => {
                                           const displayContent = typeof sectionRevision === 'string' 
                                             ? sectionRevision 
-                                            : (revisionLang === 'en' ? sectionRevision.en : sectionRevision.zh) || '';
-                                          const wordCount = countText(displayContent, revisionLang === 'zh');
-                                          return revisionLang === 'zh' ? `(${wordCount} 字)` : `(${wordCount} words)`;
+                                            : (form.language === '英文' ? (sectionRevision.en || sectionRevision.zh || '') : (sectionRevision.zh || sectionRevision.en || ''));
+                                          const wordCount = countText(displayContent, form.language === '中文');
+                                          return form.language === '中文' ? `(${wordCount} 字)` : `(${wordCount} words)`;
                                         })()}
                                       </span>
                                     </h5>
                                     <div className="flex gap-2">
                                       <button
-                                        onClick={() => setRevisionLang(prev => prev === 'en' ? 'zh' : 'en')}
-                                        className={`px-2 py-1 text-xs rounded transition-colors ${
-                                          revisionLang === 'en'
-                                            ? 'bg-blue-600 text-white hover:bg-blue-500'
-                                            : 'bg-green-600 text-white hover:bg-green-500'
-                                        }`}
-                                      >
-                                        {revisionLang === 'en' ? '🇨🇳 切換中文' : '🇺🇸 Switch EN'}
-                                      </button>
-                                      <button
                                         onClick={() => {
+                                          const langKey = form.language === '英文' ? 'en' : 'zh';
                                           const currentContent = typeof sectionRevision === 'string' 
                                             ? sectionRevision 
-                                            : (revisionLang === 'en' ? sectionRevision.en : sectionRevision.zh) || '';
-                                          const newContent = prompt(`編輯修訂稿內容 (${revisionLang === 'en' ? 'English' : '中文'}):`, currentContent);
+                                            : (langKey === 'en' ? sectionRevision.en : sectionRevision.zh) || sectionRevision.en || sectionRevision.zh || '';
+                                          const newContent = prompt(`編輯修訂稿內容 (${form.language === '英文' ? 'English' : '中文'}):`, currentContent);
                                           if (newContent !== null) {
                                             if (typeof sectionRevision === 'string') {
                                               // 旧格式转换为新格式
@@ -6781,8 +6842,8 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                                                 return {
                                                   ...prev,
                                                   [point.id]: {
-                                                    en: revisionLang === 'en' ? newContent : prevValue.en,
-                                                    zh: revisionLang === 'zh' ? newContent : prevValue.zh,
+                                                    en: form.language === '英文' ? newContent : prevValue.en,
+                                                    zh: form.language === '中文' ? newContent : prevValue.zh,
                                                   }
                                                 };
                                               });
@@ -6793,7 +6854,7 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                                                   ...prev,
                                                   [point.id]: {
                                                     ...prevValue,
-                                                    [revisionLang]: newContent
+                                                    [langKey]: newContent
                                                   }
                                                 };
                                               });
@@ -6812,7 +6873,7 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                                       if (typeof sectionRevision === 'string') {
                                         return sectionRevision;
                                       }
-                                      return revisionLang === 'en' 
+                                      return form.language === '英文' 
                                         ? (sectionRevision.en || sectionRevision.zh || '') 
                                         : (sectionRevision.zh || sectionRevision.en || '');
                                     })()}
@@ -6983,36 +7044,27 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                                 <div className="p-3 bg-slate-800 rounded border border-slate-500">
                                   <div className="flex items-center justify-between mb-2">
                                     <h5 className="text-sm font-medium text-emerald-300">
-                                      ✨ 人性化內容 ({humanizedLang === 'en' ? '英文' : '中文'})
+                                      ✨ 人性化內容 ({form.language === '英文' ? 'English' : '中文'})
                                       <span className="text-xs text-slate-400 ml-2">
                                         {(() => {
-                                          const displayContent = humanizedLang === 'en' ? sectionHumanized.en : sectionHumanized.zh;
-                                          const wordCount = countText(displayContent, humanizedLang === 'zh');
-                                          return humanizedLang === 'zh' ? `(${wordCount} 字)` : `(${wordCount} words)`;
+                                          const displayContent = form.language === '英文' ? sectionHumanized.en : sectionHumanized.zh;
+                                          const wordCount = countText(displayContent, form.language === '中文');
+                                          return form.language === '中文' ? `(${wordCount} 字)` : `(${wordCount} words)`;
                                         })()}
                                       </span>
                                     </h5>
                                     <div className="flex gap-2">
                                       <button
-                                        onClick={() => setHumanizedLang(prev => prev === 'en' ? 'zh' : 'en')}
-                                        className={`px-2 py-1 text-xs rounded transition-colors ${
-                                          humanizedLang === 'en'
-                                            ? 'bg-blue-600 text-white hover:bg-blue-500'
-                                            : 'bg-green-600 text-white hover:bg-green-500'
-                                        }`}
-                                      >
-                                        {humanizedLang === 'en' ? '🇨🇳 切換中文' : '🇺🇸 Switch EN'}
-                                      </button>
-                                      <button
                                         onClick={() => {
-                                          const currentContent = humanizedLang === 'en' ? sectionHumanized.en : sectionHumanized.zh;
+                                          const langKey = form.language === '英文' ? 'en' : 'zh';
+                                          const currentContent = langKey === 'en' ? sectionHumanized.en : sectionHumanized.zh;
                                           const newContent = prompt('編輯人性化內容:', currentContent);
                                           if (newContent !== null) {
                                             setHumanizedSections(prev => ({
                                               ...prev,
                                               [point.id]: {
                                                 ...prev[point.id],
-                                                [humanizedLang]: newContent
+                                                [langKey]: newContent
                                               }
                                             }));
                                           }
@@ -7025,7 +7077,7 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                                     </div>
                                   </div>
                                   <div className="text-slate-300 text-sm leading-relaxed whitespace-pre-wrap">
-                                    {humanizedLang === 'en' ? sectionHumanized.en : sectionHumanized.zh}
+                                    {form.language === '英文' ? sectionHumanized.en : sectionHumanized.zh}
                                   </div>
                                 </div>
                               ) : (sectionRevision || (typeof sectionDraft === 'string' ? sectionDraft : null)) ? (

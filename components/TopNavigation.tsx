@@ -9,9 +9,11 @@ import { useCredits } from '@/hooks/usePointStore';
 
 interface TopNavigationProps {
   onHamburgerClick?: () => void;
+  uiLang?: string;
 }
 
-export default function TopNavigation({ onHamburgerClick }: TopNavigationProps) {
+export default function TopNavigation({ onHamburgerClick, uiLang = '中文' }: TopNavigationProps) {
+  const isEN = uiLang === '英文';
   const { data: session, status } = useSession();
   const credits = useCredits();
   const router = useRouter();
@@ -62,7 +64,7 @@ export default function TopNavigation({ onHamburgerClick }: TopNavigationProps) 
           <div className="flex-1 flex justify-center">
             <div className="flex items-center space-x-8">
               <h1 className="text-2xl font-bold bg-gradient-to-r from-amber-400 to-yellow-300 bg-clip-text text-transparent">
-                不是你摧毁作业,就是作业摧毁你!
+                {isEN ? 'Either you destroy the assignment, or the assignment destroys you!' : '不是你摧毁作业,就是作业摧毁你!'}
               </h1>
             </div>
           </div>
