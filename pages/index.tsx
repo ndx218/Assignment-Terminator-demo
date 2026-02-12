@@ -816,26 +816,33 @@ export default function HomePage() {
     
     // 按順序組合：Hook -> Background -> Thesis，並添加明確標籤確保 UI 不會重複分類
     const normalizedBullets: string[] = [];
+    const isZH = form.language === '中文';
+    const hookLabel = isZH ? '引子' : 'Hook';
+    const backgroundLabel = isZH ? '背景' : 'Background';
+    const thesisLabel = isZH ? '論點' : 'Thesis';
+    const labelPattern = isZH 
+      ? /^(引子|背景|論點|Hook|Background|Thesis)[:：]\s*/i
+      : /^(Hook|Background|Thesis|引子|背景|論點)[:：]\s*/i;
     
     // Hook: 前2個，添加標籤
     finalHook.forEach(text => {
-      // 如果還沒有標籤，添加 Hook: 標籤
-      const hasLabel = /^(Hook|Background|Thesis)[:：]\s*/i.test(text);
-      normalizedBullets.push(hasLabel ? text : `Hook: ${text}`);
+      // 如果還沒有標籤，添加對應語言的標籤
+      const hasLabel = labelPattern.test(text);
+      normalizedBullets.push(hasLabel ? text : `${hookLabel}: ${text}`);
     });
     
     // Background: 接下來3個，添加標籤
     finalBackground.forEach(text => {
-      // 如果還沒有標籤，添加 Background: 標籤
-      const hasLabel = /^(Hook|Background|Thesis)[:：]\s*/i.test(text);
-      normalizedBullets.push(hasLabel ? text : `Background: ${text}`);
+      // 如果還沒有標籤，添加對應語言的標籤
+      const hasLabel = labelPattern.test(text);
+      normalizedBullets.push(hasLabel ? text : `${backgroundLabel}: ${text}`);
     });
     
     // Thesis: 最後1個，添加標籤
     finalThesis.forEach(text => {
-      // 如果還沒有標籤，添加 Thesis: 標籤
-      const hasLabel = /^(Hook|Background|Thesis)[:：]\s*/i.test(text);
-      normalizedBullets.push(hasLabel ? text : `Thesis: ${text}`);
+      // 如果還沒有標籤，添加對應語言的標籤
+      const hasLabel = labelPattern.test(text);
+      normalizedBullets.push(hasLabel ? text : `${thesisLabel}: ${text}`);
     });
 
     return {

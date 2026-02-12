@@ -320,23 +320,32 @@ async function enrichBullets(
 
     if (bullets.length === 0) continue;
 
-    const tagNote = isZH
+    const wantZH = /中|中文|zh/i.test(ctx.language);
+    const tagNote = wantZH
       ? '（保留/新增/補）'
       : '(keep/add/expand)';
-
-    const wantZH = /中|中文|zh/i.test(ctx.language);
     const langRule = wantZH
-      ? '⚠️ 必須完全使用中文輸出，不得混用英文。'
-      : '⚠️ CRITICAL: Output must be 100% in English only. No Chinese or mixed languages.';
-    const prompt = `
-${wantZH ? '請用「中文」' : 'Use English only. '}將章節「${sec.title}」的要點改寫為高資訊密度版本，要求如下：
+      ? '⚠️ 硬性要求：必須完全使用中文輸出，不得混用任何英文單詞、標籤或格式。所有標題、標籤（如"保留"、"新增"、"補"）、內容說明都必須是中文。禁止使用英文標籤如"keep"、"add"、"expand"。'
+      : '⚠️ CRITICAL: Output must be 100% in English only. No Chinese characters, words, or mixed languages. All titles, labels (like "keep", "add", "expand"), and content must be in English. Do not use Chinese labels like "保留", "新增", "補".';
+    const prompt = wantZH ? `
+請用「中文」將章節「${sec.title}」的要點改寫為高資訊密度版本，要求如下：
 ${langRule}
 1) 只輸出 3–5 條主要要點，每條「必須」以「- 」開頭。
 2) 每條格式為「短標題${tagNote}：一句具體說明（避免空話）」。
 3) 視需要，在下一行縮排兩空白加入「a.」「b.」子要點（各 ≤ 20 字；可給例子/對比/指標/可操作步驟）。
 4) 如合適，可在主行句尾加一個來源關鍵詞（非連結），例如：arXiv、ACL Anthology、OWASP、EU AI Act、Apple Security Research 等。
 5) 不要章節標題、不要空行、不要連結；保留語氣：${ctx.tone}。
-【原有要點 / Original bullets】
+【原有要點】
+${bullets.join('\n')}
+`.trim() : `
+Use English only to rewrite the bullets for section "${sec.title}" into high-information-density versions, with the following requirements:
+${langRule}
+1) Output only 3–5 main bullets, each MUST start with "- ".
+2) Each bullet format: "Short Title ${tagNote}: one specific explanation (avoid empty words)".
+3) Optionally, add "a." "b." subpoints on the next line with 2-space indent (each ≤ 20 words; can give examples/comparisons/metrics/actionable steps).
+4) If appropriate, add a source keyword (not a link) at the end of the main line, e.g.: arXiv, ACL Anthology, OWASP, EU AI Act, Apple Security Research, etc.
+5) No section titles, no blank lines, no links; maintain tone: ${ctx.tone}.
+【Original bullets】
 ${bullets.join('\n')}
 `.trim();
 
@@ -475,13 +484,14 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<ResBody>,
 ) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: '只接受 POST' });
-  }
+  try {
+    if (req.method !== 'POST') {
+      return res.status(405).json({ error: '只接受 POST' });
+    }
 
-  const deduct = await deductCredits(req, res);
-  if (!deduct.ok) return;
-  const { userId } = deduct;
+    const deduct = await deductCredits(req, res);
+    if (!deduct.ok) return;
+    const { userId } = deduct;
 
   const {
     title,
@@ -788,6 +798,15 @@ ${isZH ? '請直接輸出大綱內容，不要額外說明。' : 'Output the out
       outlineId: undefined,
       remainingCredits: deduct.remainingCredits,
       warning: '大綱已生成，但無法保存到資料庫。請檢查資料庫連接。'
+    });
+  } catch (unexpectedError: any) {
+    // 捕獲所有未預期的錯誤，確保始終返回 JSON
+    console.error('[outline:unexpected-error]', unexpectedError);
+    const errorMsg = String(unexpectedError?.message || unexpectedError || '未知錯誤');
+    return res.status(500).json({ 
+      error: errorMsg.includes('AI') || errorMsg.includes('服務') 
+        ? 'AI 服務錯誤，請稍後再試' 
+        : `伺服器錯誤：${errorMsg.slice(0, 100)}` 
     });
   }
 }

@@ -17,15 +17,27 @@ export async function deductCredits(
   amount: number = USE_COST
 ): Promise<DeductResult> {
   const session = await getAuthSession(req, res);
-  if (!session?.user?.id) {
+  const userId = session?.user?.id;
+  if (!userId || typeof userId !== 'string' || userId.trim().length === 0) {
     res.status(401).json({ error: '請先登入後再使用' });
     return { ok: false, status: 401, body: { error: '請先登入後再使用' } };
   }
 
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    select: { credits: true },
-  });
+  let user;
+  try {
+    user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { credits: true },
+    });
+  } catch (dbErr: any) {
+    console.error('[credits] prisma.user.findUnique failed:', dbErr?.message || dbErr);
+    res.status(500).json({ 
+      error: dbErr?.message?.includes('Invalid') 
+        ? '資料庫連線或結構異常，請檢查環境變數與 Prisma schema' 
+        : '伺服器錯誤，請稍後再試' 
+    });
+    return { ok: false, status: 500, body: { error: 'Database error' } };
+  }
 
   if (!user) {
     res.status(404).json({ error: '使用者不存在' });
