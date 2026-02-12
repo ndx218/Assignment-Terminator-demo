@@ -55,7 +55,7 @@ export async function deductCredits(
   }
 
   const updated = await prisma.user.update({
-    where: { id: session.user.id },
+    where: { id: userId },
     data: { credits: { decrement: amount } },
     select: { credits: true },
   });
@@ -65,13 +65,13 @@ export async function deductCredits(
   // 記錄交易
   await prisma.transaction.create({
     data: {
-      userId: session.user.id,
+      userId,
       amount: -amount,
       type: 'USAGE',
       description: `功能使用 - 扣 ${amount} 點`,
-      performedBy: session.user.id,
+      performedBy: userId,
     },
   });
 
-  return { ok: true, userId: session.user.id, remainingCredits };
+  return { ok: true, userId, remainingCredits };
 }
