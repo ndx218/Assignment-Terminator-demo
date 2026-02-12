@@ -799,6 +799,7 @@ ${isZH ? '請直接輸出大綱內容，不要額外說明。' : 'Output the out
       remainingCredits: deduct.remainingCredits,
       warning: '大綱已生成，但無法保存到資料庫。請檢查資料庫連接。'
     });
+  }
   } catch (unexpectedError: any) {
     // 捕獲所有未預期的錯誤，確保始終返回 JSON
     console.error('[outline:unexpected-error]', unexpectedError);
