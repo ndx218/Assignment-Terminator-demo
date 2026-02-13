@@ -9,9 +9,10 @@ import { useCredits } from '@/hooks/usePointStore';
 interface TopNavigationProps {
   onHamburgerClick?: () => void;
   uiLang?: string;
+  onUiLangChange?: (lang: string) => void;
 }
 
-export default function TopNavigation({ onHamburgerClick, uiLang = '中文' }: TopNavigationProps) {
+export default function TopNavigation({ onHamburgerClick, uiLang = '中文', onUiLangChange }: TopNavigationProps) {
   const isEN = uiLang === '英文';
   const { data: session, status } = useSession();
   const credits = useCredits();
@@ -68,19 +69,29 @@ export default function TopNavigation({ onHamburgerClick, uiLang = '中文' }: T
             </div>
           </div>
 
-          {/* 右侧：积分、用户信息、登入按钮 */}
-          <div className="flex items-center space-x-6 pr-4">
+          {/* 右侧：界面語言、积分、用户信息、登入按钮 */}
+          <div className="flex items-center space-x-4 pr-4">
+            {onUiLangChange && (
+              <select
+                value={uiLang}
+                onChange={(e) => onUiLangChange(e.target.value)}
+                className="px-3 py-1.5 rounded-lg bg-slate-700 text-white text-sm border border-slate-600 focus:border-amber-400 focus:ring-1 focus:ring-amber-400 outline-none"
+              >
+                <option value="中文">中文</option>
+                <option value="英文">English</option>
+              </select>
+            )}
             {status === 'authenticated' && (
               <div className="flex items-center space-x-2 bg-amber-100 px-3 py-2 rounded-lg">
                 <CreditCard className="w-4 h-4 text-amber-600" />
                 <span className="text-amber-700 font-medium">
-                  {credits || session?.user?.credits || 0} 点
+                  {credits ?? session?.user?.credits ?? 0} {isEN ? 'pts' : '点'}
                 </span>
               </div>
             )}
             <div className="flex items-center space-x-2">
               <User className="w-5 h-5 text-white" />
-              <span className="text-white font-medium">
+              <span className="text-white font-medium truncate max-w-[180px]">
                 {status === 'authenticated' ? (session?.user?.email || '用户') : '未登入'}
               </span>
             </div>

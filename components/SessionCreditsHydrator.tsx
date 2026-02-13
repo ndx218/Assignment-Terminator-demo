@@ -31,41 +31,42 @@ export default function SessionCreditsHydrator() {
   }, [mounted]);
 
   useEffect(() => {
-    // 只在客户端挂载后运行
     if (!mounted) return;
-    
-    // 确保 setCredits 可用
-    if (!setCredits || typeof setCredits !== 'function') {
-      return;
-    }
+    if (!setCredits || typeof setCredits !== 'function') return;
 
     try {
       if (status === 'authenticated') {
         const userId = String(session?.user?.id ?? '');
         const raw = (session as any)?.user?.credits;
 
-        // 換帳號時清除上一位使用者的持久化資料，避免殘留
         if (lastUserIdRef.current && lastUserIdRef.current !== userId) {
           usePointStore.persist?.clearStorage?.();
         }
         lastUserIdRef.current = userId;
 
-        // 僅在是數字時才覆寫 Store，避免不完整的 session 將值降為 0
         if (typeof raw === 'number' && Number.isFinite(raw)) {
           setCredits(raw);
         }
+
+        // 頁面載入時從 API 取得最新點數，避免顯示 0
+        fetch('/api/credits')
+          .then((r) => r.json())
+          .then((data) => {
+            if (typeof data?.credits === 'number') {
+              setCredits(data.credits);
+            }
+          })
+          .catch(() => {});
         return;
       }
 
       if (status === 'unauthenticated') {
-        // 登出時歸零並清掉持久化，避免下位使用者看到殘值
         setCredits(0);
         usePointStore.persist?.clearStorage?.();
         lastUserIdRef.current = null;
       }
     } catch (error) {
       console.error('SessionCreditsHydrator error:', error);
-      // 靜默處理錯誤，不影響應用運行
     }
   }, [status, session?.user?.id, session?.user?.credits, setCredits, mounted]);
 

@@ -4340,7 +4340,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
 
   return (
     <div className="min-h-screen" style={{ background: 'linear-gradient(160deg, #0f172a 0%, #1e293b 35%, #2d3748 70%, #1a365d 100%)', backgroundAttachment: 'fixed' }}>
-      <TopNavigation uiLang={form.uiLanguage} />
+      <TopNavigation uiLang={form.uiLanguage} onUiLangChange={(v) => setForm(prev => ({ ...prev, uiLanguage: v }))} />
       
       <div className="pt-16 px-6">
         <div className="flex">
@@ -4394,21 +4394,6 @@ ${ref.year ? `年份：${ref.year}` : ''}
             <select
               value={form.language}
               onChange={(e) => setForm(prev => ({ ...prev, language: e.target.value }))}
-              className="w-full px-4 py-3 bg-slate-700 text-white border border-slate-600 rounded-lg focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-colors"
-            >
-              <option value="中文">{isUI_EN ? 'Chinese' : '中文'}</option>
-              <option value="英文">{isUI_EN ? 'English' : '英文'}</option>
-            </select>
-          </div>
-
-          {/* 界面語言（網站版面用） */}
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-white mb-2">
-              {t.interfaceLanguage} {isUI_EN ? '(buttons, labels)' : '（按鈕、標籤等）'}
-            </label>
-            <select
-              value={form.uiLanguage}
-              onChange={(e) => setForm(prev => ({ ...prev, uiLanguage: e.target.value }))}
               className="w-full px-4 py-3 bg-slate-700 text-white border border-slate-600 rounded-lg focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-colors"
             >
               <option value="中文">{isUI_EN ? 'Chinese' : '中文'}</option>
