@@ -56,6 +56,12 @@ export const authOptions: NextAuthOptions = {
     },
   },
 
+  events: {
+    async error({ message, error }) {
+      console.error('[auth:error]', message, error);
+    },
+  },
+
   callbacks: {
     async jwt({ token, user, trigger, session }) {
       if (user) {
@@ -88,13 +94,18 @@ export const authOptions: NextAuthOptions = {
     },
 
     async signIn({ user }) {
-      const dbUser = await prisma.user.findUnique({
-        where: { email: user.email ?? undefined },
-      });
-      if (dbUser) {
-        (user as any).phone = dbUser.phone ?? null;
-        (user as any).referredBy = dbUser.referredBy ?? null;
-        (user as any).referralCode = dbUser.referralCode ?? null;
+      try {
+        const dbUser = await prisma.user.findUnique({
+          where: { email: user.email ?? undefined },
+        });
+        if (dbUser) {
+          (user as any).phone = dbUser.phone ?? null;
+          (user as any).referredBy = dbUser.referredBy ?? null;
+          (user as any).referralCode = dbUser.referralCode ?? null;
+        }
+      } catch (e) {
+        console.error('[auth:signIn] DB lookup failed:', e);
+        // 不阻擋登入，adapter 會建立新用戶
       }
       return true;
     },
