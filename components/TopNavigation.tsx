@@ -86,7 +86,10 @@ export default function TopNavigation({ onHamburgerClick, uiLang = '中文' }: T
             </div>
             {status !== 'authenticated' && (
               <button
-                onClick={() => router.push('/login')}
+                onClick={() => {
+                  localStorage.removeItem('skipLogin'); // 清除跳過登入，否則登入頁會立刻重導回首頁
+                  router.push('/login');
+                }}
                 className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition-colors"
               >
                 <LogIn className="w-4 h-4" />
@@ -160,6 +163,7 @@ export default function TopNavigation({ onHamburgerClick, uiLang = '中文' }: T
                 ) : (
                   <button
                     onClick={() => {
+                      localStorage.removeItem('skipLogin'); // 清除跳過登入
                       closeSidebar();
                       router.push('/login');
                     }}
