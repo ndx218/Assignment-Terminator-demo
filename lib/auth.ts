@@ -1,6 +1,6 @@
 import { getServerSession } from 'next-auth/next';
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { authOptions } from '@/pages/api/auth/[...nextauth]';
+import { authOptions } from '@/server/authOptions';
 
 /* ──────────────────────────────────────────────────────────────── */
 /** 在 **Pages Router** 的 API Route 內使用（必須傳 req / res） */

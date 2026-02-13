@@ -1,7 +1,6 @@
 "use client";
 
 import { useSession, signOut } from 'next-auth/react';
-import Link from 'next/link';
 import { Menu, User, CreditCard, X, LogIn, LogOut } from 'lucide-react';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -86,13 +85,13 @@ export default function TopNavigation({ onHamburgerClick, uiLang = '中文' }: T
               </span>
             </div>
             {status !== 'authenticated' && (
-              <Link
-                href="/login"
+              <button
+                onClick={() => router.push('/login')}
                 className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition-colors"
               >
                 <LogIn className="w-4 h-4" />
                 <span>登入</span>
-              </Link>
+              </button>
             )}
           </div>
         </div>
@@ -107,8 +106,8 @@ export default function TopNavigation({ onHamburgerClick, uiLang = '中文' }: T
             onClick={closeSidebar}
           />
           
-          {/* 侧边栏弹窗 */}
-          <div className={`fixed left-0 top-0 h-full w-80 bg-slate-800 shadow-2xl z-40 transform transition-all duration-500 ease-in-out border-r-2 border-slate-600 ${
+          {/* 侧边栏弹窗 - z-50 確保在遮罩之上 */}
+          <div className={`fixed left-0 top-0 h-full w-80 bg-slate-800 shadow-2xl z-50 transform transition-all duration-500 ease-in-out border-r-2 border-slate-600 ${
             isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
           }`} style={{ backgroundColor: '#1e293b' }}>
             <div className="p-6">
@@ -159,13 +158,16 @@ export default function TopNavigation({ onHamburgerClick, uiLang = '中文' }: T
                     <span>登出</span>
                   </button>
                 ) : (
-                  <Link
-                    href="/login"
+                  <button
+                    onClick={() => {
+                      closeSidebar();
+                      router.push('/login');
+                    }}
                     className="w-full flex items-center space-x-3 p-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition-colors border border-emerald-500"
                   >
                     <LogIn className="w-5 h-5" />
                     <span>登入</span>
-                  </Link>
+                  </button>
                 )}
               </div>
             </div>
