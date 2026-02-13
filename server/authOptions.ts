@@ -56,12 +56,6 @@ export const authOptions: NextAuthOptions = {
     },
   },
 
-  events: {
-    async error({ message, error }) {
-      console.error('[auth:error]', message, error);
-    },
-  },
-
   callbacks: {
     async jwt({ token, user, trigger, session }) {
       if (user) {
