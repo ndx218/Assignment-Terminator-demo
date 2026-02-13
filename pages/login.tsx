@@ -8,6 +8,19 @@ export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
+  const error = typeof router.query.error === 'string' ? router.query.error : null;
+  const [configCheck, setConfigCheck] = useState<{ ok?: boolean; checks?: Record<string, boolean>; missing?: string[]; expectedCallbackUrl?: string } | null>(null);
+
+  useEffect(() => {
+    if (error === 'Callback') {
+      fetch('/api/auth/check-config')
+        .then((r) => r.json())
+        .then(setConfigCheck)
+        .catch(() => setConfigCheck(null));
+    } else {
+      setConfigCheck(null);
+    }
+  }, [error]);
 
   useEffect(() => {
     console.log('🔍 status:', status);
@@ -67,6 +80,34 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-gray-100 px-4">
       <div className="w-full max-w-md bg-white shadow-xl rounded-2xl p-8 space-y-6">
         <h1 className="text-2xl font-bold text-center">登入 Assignment Terminator</h1>
+
+        {error === 'Callback' && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 space-y-2">
+            <p className="font-medium">Google 登入回調失敗</p>
+            {configCheck && (
+              <div className="bg-white/50 rounded p-2 text-xs space-y-1">
+                {configCheck.ok ? (
+                  <p className="text-green-700">✓ 環境變數已設定，問題可能在 Redirect URI 或資料庫</p>
+                ) : (
+                  <>
+                    <p className="text-red-700">缺少：{configCheck.missing?.join(', ')}</p>
+                    {configCheck.expectedCallbackUrl && (
+                      <p>Google 需加入：<code className="block mt-1 break-all">{configCheck.expectedCallbackUrl}</code></p>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+            <p>請依序檢查：</p>
+            <ol className="list-decimal list-inside space-y-1">
+              <li>Google Cloud Console → 已授權的重新導向 URI 必須包含：<br />
+                <code className="text-xs bg-white px-1 rounded block mt-1">https://assignment-terminator-demo-ilsy.vercel.app/api/auth/callback/google</code>
+              </li>
+              <li>Vercel → Settings → Environment Variables 必須設定：NEXTAUTH_URL、NEXTAUTH_SECRET、GOOGLE_ID、GOOGLE_SECRET、DATABASE_URL</li>
+              <li>資料庫需已執行 <code className="text-xs">prisma migrate deploy</code> 建立 User、Account 表</li>
+            </ol>
+          </div>
+        )}
 
         <button
           onClick={handleGoogleSignIn}

@@ -70,7 +70,8 @@ export default function HomePage() {
     conclusionWords: 140,
     totalWords: 1000,
     rubric: "",
-    language: "中文",
+    language: "中文",      // 內容生成語言（大綱、初稿等 AI 輸出）
+    uiLanguage: "中文",   // 網站版面語言（按鈕、標籤等介面）
     tone: "正式",
     detail: "",
     reference: "",
@@ -91,9 +92,11 @@ export default function HomePage() {
     },
   });
 
-  const isEN = form.language === '英文';
-  const t = isEN ? {
+  const isEN = form.language === '英文';       // 內容生成用
+  const isUI_EN = form.uiLanguage === '英文'; // 網站版面用
+  const t = isUI_EN ? {
     title: 'Paper Title', totalWords: 'Total Words', language: 'Language', tone: 'Tone',
+    contentLanguage: 'Content language', interfaceLanguage: 'Interface language',
     settings: 'Assignment Settings', planner: 'Paragraph Planner', introWords: 'Intro Words', bodyCount: 'Body Count', conclusionWords: 'Conclusion Words',
     body: (n: number) => `Body ${n}`, wordCount: 'Words', generalContent: 'General Content', describeContent: 'Describe content...',
     total: 'Total', words: 'words', paragraphs: 'paragraphs', collapse: 'Collapse', expand: 'Expand',
@@ -106,6 +109,7 @@ export default function HomePage() {
     addPoint: 'Add Point', editPoints: 'Edit bullet points...',
   } : {
     title: '論文標題', totalWords: '總字數', language: '語言', tone: '語氣',
+    contentLanguage: '內容語言', interfaceLanguage: '界面語言',
     settings: '功課設定', planner: '段落規劃器', introWords: '引言字數', bodyCount: '主體數量', conclusionWords: '結論字數',
     body: (n: number) => `主體${n}`, wordCount: '字數', generalContent: '大致內容', describeContent: '描述內容...',
     total: '總計', words: '字', paragraphs: '段', collapse: '收起', expand: '展開',
@@ -870,6 +874,7 @@ export default function HomePage() {
     const buildDefaultParagraphDescription = (title: string, bullets: string[]): string => {
       const mainTitle = title.replace(/[：:].*$/, '').replace(/（約.*$/g, '').trim() || title;
       const cleanedBullets = bullets.map(summarizeBullet).filter(Boolean);
+      const sep = isEN ? ', ' : '、';
 
       const splitFocusDetail = (bullet: string) => {
         const [focusRaw, ...rest] = bullet.split(/[：:]/);
@@ -884,38 +889,42 @@ export default function HomePage() {
       };
 
       if (cleanedBullets.length === 0) {
-        return `本段針對${mainTitle}建立背景，交代問題來源與後續分析方向。`;
+        return isEN
+          ? `This section establishes context for ${mainTitle}, outlining the problem and analysis direction.`
+          : `本段針對${mainTitle}建立背景，交代問題來源與後續分析方向。`;
       }
 
       const meta = cleanedBullets.map(splitFocusDetail);
-      const focusList = meta
-        .map(({ focus, detail }) => focus || makeSnippet(detail, 12))
-        .filter(Boolean);
 
       if (meta.length === 1) {
         const [{ focus, detail }] = meta;
-        return `本段鎖定${focus || mainTitle}，進一步揭示${makeSnippet(detail || cleanedBullets[0])}，讓讀者理解其對${mainTitle}的實務意涵。`;
+        return isEN
+          ? `This section focuses on ${focus || mainTitle}, elaborating on ${makeSnippet(detail || cleanedBullets[0])} to help readers understand its practical implications for ${mainTitle}.`
+          : `本段鎖定${focus || mainTitle}，進一步揭示${makeSnippet(detail || cleanedBullets[0])}，讓讀者理解其對${mainTitle}的實務意涵。`;
       }
 
       if (meta.length === 2) {
         const first = meta[0];
         const second = meta[1];
-        return `本段先拆解${first.focus || makeSnippet(first.detail)}的角色，再延伸至${second.focus || makeSnippet(second.detail)}的操作重點，串起${mainTitle}的整體脈絡。`;
+        return isEN
+          ? `This section first examines the role of ${first.focus || makeSnippet(first.detail)}, then extends to ${second.focus || makeSnippet(second.detail)}, connecting the overall framework of ${mainTitle}.`
+          : `本段先拆解${first.focus || makeSnippet(first.detail)}的角色，再延伸至${second.focus || makeSnippet(second.detail)}的操作重點，串起${mainTitle}的整體脈絡。`;
       }
 
       const [first, second, third, ...rest] = meta;
       const highlight = [first, second, third]
         .map(item => item.focus || makeSnippet(item.detail))
         .filter(Boolean)
-        .join('、');
+        .join(sep);
       const restMention = rest.length > 0
-        ? `並補充${rest
-            .map(item => item.focus || makeSnippet(item.detail))
-            .filter(Boolean)
-            .join('、')}等延伸重點，`
-        : '';
+        ? (isEN
+            ? ` and extends to ${rest.map(item => item.focus || makeSnippet(item.detail)).filter(Boolean).join(sep)}, `
+            : `並補充${rest.map(item => item.focus || makeSnippet(item.detail)).filter(Boolean).join('、')}等延伸重點，`)
+        : (isEN ? ', ' : '');
       const detailSnippet = makeSnippet(first.detail || cleanedBullets[0], 48);
-      return `本段聚焦${mainTitle}的多個環節，依序解析${highlight}，${restMention}說明${detailSnippet}，協助讀者掌握策略與執行層面。`;
+      return isEN
+        ? `This section focuses on key aspects of ${mainTitle}, analyzing ${highlight}${restMention}explaining ${detailSnippet} to help readers grasp strategic and operational dimensions.`
+        : `本段聚焦${mainTitle}的多個環節，依序解析${highlight}，${restMention}說明${detailSnippet}，協助讀者掌握策略與執行層面。`;
     };
 
     const lines = outlineText.split('\n');
@@ -941,11 +950,17 @@ export default function HomePage() {
           } else if (!content) {
             const titleLower = currentPoint.title!.toLowerCase();
             if (titleLower.includes('引言') || titleLower.includes('introduction')) {
-              content = `本段釐清${currentPoint.title}的脈絡，並點出後續段落審視的焦點與問題意識。`;
+              content = isEN
+                ? `This section clarifies the context of ${currentPoint.title} and highlights the focus and key questions for subsequent sections.`
+                : `本段釐清${currentPoint.title}的脈絡，並點出後續段落審視的焦點與問題意識。`;
             } else if (titleLower.includes('結論') || titleLower.includes('conclusion')) {
-              content = `本段回應${currentPoint.title}所聚焦的主題，總結前述要點並提出延伸建議。`;
+              content = isEN
+                ? `This section responds to the theme of ${currentPoint.title}, summarizes the key points, and offers recommendations.`
+                : `本段回應${currentPoint.title}所聚焦的主題，總結前述要點並提出延伸建議。`;
             } else {
-              content = `本段圍繞${currentPoint.title}展開，補充背景、需求與分析重點。`;
+              content = isEN
+                ? `This section centers on ${currentPoint.title}, covering background, requirements, and analysis.`
+                : `本段圍繞${currentPoint.title}展開，補充背景、需求與分析重點。`;
             }
           }
           
@@ -4325,7 +4340,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
 
   return (
     <div className="min-h-screen" style={{ background: 'linear-gradient(160deg, #0f172a 0%, #1e293b 35%, #2d3748 70%, #1a365d 100%)', backgroundAttachment: 'fixed' }}>
-      <TopNavigation uiLang={form.language} />
+      <TopNavigation uiLang={form.uiLanguage} />
       
       <div className="pt-16 px-6">
         <div className="flex">
@@ -4371,18 +4386,33 @@ ${ref.year ? `年份：${ref.year}` : ''}
             />
           </div>
 
-          {/* 語言選擇 */}
+          {/* 內容語言（AI 生成用） */}
           <div className="mb-4">
             <label className="block text-sm font-medium text-white mb-2">
-              {t.language}
+              {t.contentLanguage} {isUI_EN ? '(AI output)' : '（大綱、初稿等）'}
             </label>
             <select
               value={form.language}
               onChange={(e) => setForm(prev => ({ ...prev, language: e.target.value }))}
               className="w-full px-4 py-3 bg-slate-700 text-white border border-slate-600 rounded-lg focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-colors"
             >
-              <option value="中文">{isEN ? 'Chinese' : '中文'}</option>
-              <option value="英文">{isEN ? 'English' : '英文'}</option>
+              <option value="中文">{isUI_EN ? 'Chinese' : '中文'}</option>
+              <option value="英文">{isUI_EN ? 'English' : '英文'}</option>
+            </select>
+          </div>
+
+          {/* 界面語言（網站版面用） */}
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-white mb-2">
+              {t.interfaceLanguage} {isUI_EN ? '(buttons, labels)' : '（按鈕、標籤等）'}
+            </label>
+            <select
+              value={form.uiLanguage}
+              onChange={(e) => setForm(prev => ({ ...prev, uiLanguage: e.target.value }))}
+              className="w-full px-4 py-3 bg-slate-700 text-white border border-slate-600 rounded-lg focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-colors"
+            >
+              <option value="中文">{isUI_EN ? 'Chinese' : '中文'}</option>
+              <option value="英文">{isUI_EN ? 'English' : '英文'}</option>
             </select>
           </div>
 
@@ -4396,9 +4426,9 @@ ${ref.year ? `年份：${ref.year}` : ''}
               onChange={(e) => setForm(prev => ({ ...prev, tone: e.target.value }))}
               className="w-full px-4 py-3 bg-slate-700 text-white border border-slate-600 rounded-lg focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-colors"
             >
-              <option value="正式">{isEN ? 'Formal' : '正式'}</option>
-              <option value="非正式">{isEN ? 'Informal' : '非正式'}</option>
-              <option value="學術">{isEN ? 'Academic' : '學術'}</option>
+              <option value="正式">{isUI_EN ? 'Formal' : '正式'}</option>
+              <option value="非正式">{isUI_EN ? 'Informal' : '非正式'}</option>
+              <option value="學術">{isUI_EN ? 'Academic' : '學術'}</option>
             </select>
           </div>
 
@@ -4417,9 +4447,9 @@ ${ref.year ? `年份：${ref.year}` : ''}
                     {!form.plannerExpanded ? (
                       <div className="text-center text-sm text-slate-300">
                         <div className="grid grid-cols-3 gap-2 text-xs">
-                          <div>{isEN ? 'Intro' : '引言'}: {form.introWords || 140}{t.words}</div>
-                          <div>{isEN ? 'Body' : '主體'}: {form.bodyCount || 3}{isEN ? ' para' : '段'}</div>
-                          <div>{isEN ? 'Conclusion' : '結論'}: {form.conclusionWords || 140}{t.words}</div>
+                          <div>{isUI_EN ? 'Intro' : '引言'}: {form.introWords || 140}{t.words}</div>
+                          <div>{isUI_EN ? 'Body' : '主體'}: {form.bodyCount || 3}{isUI_EN ? ' para' : '段'}</div>
+                          <div>{isUI_EN ? 'Conclusion' : '結論'}: {form.conclusionWords || 140}{t.words}</div>
                         </div>
                         <div className="mt-1 flex items-center justify-between">
                           <span>{t.total}: {form.totalWords || 1000}{t.words}</span>
@@ -4444,10 +4474,10 @@ ${ref.year ? `年份：${ref.year}` : ''}
                             value={form.bodyCount || 3}
                             onChange={(e) => setForm({ ...form, bodyCount: parseInt(e.target.value) || 3 })}
                           >
-                            <option value="2">{isEN ? '2 para' : '2段'}</option>
-                            <option value="3">{isEN ? '3 para' : '3段'}</option>
-                            <option value="4">{isEN ? '4 para' : '4段'}</option>
-                            <option value="5">{isEN ? '5 para' : '5段'}</option>
+                            <option value="2">{isUI_EN ? '2 para' : '2段'}</option>
+                            <option value="3">{isUI_EN ? '3 para' : '3段'}</option>
+                            <option value="4">{isUI_EN ? '4 para' : '4段'}</option>
+                            <option value="5">{isUI_EN ? '5 para' : '5段'}</option>
                           </select>
                         </div>
                         
@@ -5323,7 +5353,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
                                   </div>
                             )}
                             
-                            <p className="text-slate-400 text-xs mt-2">字數：{point.wordCount}字</p>
+                            <p className="text-slate-400 text-xs mt-2">{isUI_EN ? `Words: ${point.wordCount}` : `字數：${point.wordCount}字`}</p>
                                 </div>
                             </div>
                       </div>
@@ -5599,7 +5629,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
                                 </div>
                               )}
                             
-                          <p className="text-slate-400 text-xs mt-3 border-t border-slate-600/70 pt-2">字數：{point.wordCount}字</p>
+                          <p className="text-slate-400 text-xs mt-3 border-t border-slate-600/70 pt-2">{isUI_EN ? `Words: ${point.wordCount}` : `字數：${point.wordCount}字`}</p>
                           </div>
                         </div>
                         

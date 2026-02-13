@@ -84,8 +84,12 @@ NEXTAUTH_SECRET=一個隨機字符串（用於加密session）
 ## 常見錯誤
 
 ### 錯誤：`error=Callback`
-- **原因**: Redirect URI 不匹配
-- **解決**: 確認 Google Cloud Console 中的 Redirect URI 與應用程序中的完全一致
+- **原因**: Redirect URI 不匹配，或 NEXTAUTH_URL 未設定
+- **解決**:
+  1. 在 Google Cloud Console → OAuth 客戶端 → 已授權的重新導向 URI 中，**必須**加入（精確匹配）：
+     - `https://assignment-terminator-demo-ilsy.vercel.app/api/auth/callback/google`（注意結尾是 `/google`）
+  2. 刪除錯誤的 URI，例如：`.../api/auth/callback`（缺少 `/google`）或 `.../callback/goo`（被截斷）
+  3. 在 Vercel 環境變數設定：`NEXTAUTH_URL=https://assignment-terminator-demo-ilsy.vercel.app`
 
 ### 錯誤：`error=AccessDenied`
 - **原因**: 用戶拒絕授權
