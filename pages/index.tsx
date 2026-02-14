@@ -143,6 +143,7 @@ export default function HomePage() {
   const [isGeneratingReview, setIsGeneratingReview] = useState(false);
   const [currentGeneratingReviewSection, setCurrentGeneratingReviewSection] = useState<number | null>(null);
   const [isTranslatingReview, setIsTranslatingReview] = useState(false); // ✅ 翻译状态
+  const [isTranslatingFullDraft, setIsTranslatingFullDraft] = useState(false); // ✅ 完整初稿翻譯成中文
   const [revisionSections, setRevisionSections] = useState<{[key: number]: {en: string, zh: string}}>({}); // ✅ 分段修订稿（中英文）
   const [isGeneratingRevision, setIsGeneratingRevision] = useState(false);
   const [currentGeneratingRevisionSection, setCurrentGeneratingRevisionSection] = useState<number | null>(null);
@@ -1580,7 +1581,24 @@ ${sectionReferenceText}
       if (type === 'full') {
         setGeneratedContent(cleanedDraft);
         const cleanedDraftZh = (data.draftZh || '').trim();
-        if (cleanedDraftZh) setGeneratedContentZh(cleanedDraftZh);
+        if (cleanedDraftZh) {
+          setGeneratedContentZh(cleanedDraftZh);
+        } else if (cleanedDraft.length > 50) {
+          // ✅ 自動翻譯成中文：API 未回傳時，前端自動呼叫翻譯
+          try {
+            const transRes = await fetch('/api/translate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ text: cleanedDraft, targetLang: 'zh' }),
+            });
+            const transData = await transRes.json();
+            if (transRes.ok && transData.translated) {
+              setGeneratedContentZh(transData.translated.trim());
+            }
+          } catch (e) {
+            console.error('[draft] 自動翻譯失敗:', e);
+          }
+        }
         
         const draftText = cleanedDraft;
         const newDraftSectionsEn: Record<number, string> = {};
@@ -2840,6 +2858,32 @@ Output only the bullet point content, without any labels or numbering.`
     }
   };
 
+  // ✅ 翻譯完整初稿成中文
+  const handleTranslateFullDraft = async () => {
+    const textEn = fullDraftTextEn || generatedContent?.trim() || '';
+    if (!textEn || textEn.length < 20) {
+      alert('請先生成完整初稿（英文）');
+      return;
+    }
+    setIsTranslatingFullDraft(true);
+    try {
+      const res = await fetch('/api/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: textEn, targetLang: 'zh' }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '翻譯失敗');
+      const translated = data.translated || '';
+      if (translated) setGeneratedContentZh(translated);
+    } catch (err: any) {
+      console.error('翻譯完整初稿失敗:', err);
+      alert(err?.message || '翻譯失敗，請稍後再試');
+    } finally {
+      setIsTranslatingFullDraft(false);
+    }
+  };
+
   // 搜尋文獻
   const handleSearchReferences = async (
     keyword: string,
@@ -3937,6 +3981,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
 
   const blockedPublisherDomains = [
     'taylorfrancis.com',
+    'tandfonline.com',  // Taylor & Francis Online
     'link.springer.com',
     'springer.com',
     'sciencedirect.com',
@@ -6679,6 +6724,13 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                     <div className="mt-6 p-4 bg-slate-700 rounded-lg border border-slate-600">
                       <div className="flex items-center justify-between mb-3">
                             <h3 className="text-lg font-semibold text-white">✍️ 完整初稿 (English)</h3>
+                            <button
+                              onClick={handleTranslateFullDraft}
+                              disabled={isTranslatingFullDraft || isCurrentTabLocked}
+                              className="px-3 py-1 bg-purple-600 hover:bg-purple-500 text-white text-sm rounded transition-colors disabled:opacity-50"
+                            >
+                              {isTranslatingFullDraft ? '🔄 翻譯中...' : '🌐 翻譯成中文'}
+                            </button>
                       </div>
                       <textarea
                             id="draft-en-scroll"
@@ -6703,16 +6755,25 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                       )}
                       
                       {/* 完整初稿显示区域 - 中文版（內容語言=中文時只顯示此區；內容語言=英文時與英文區一併顯示） */}
-                      {fullDraftTextZh && (
+                      {(fullDraftTextZh || fullDraftTextEn) && (
                         <div className="mt-6 p-4 bg-slate-700 rounded-lg border border-slate-600">
                           <div className="flex items-center justify-between mb-3">
                             <h3 className="text-lg font-semibold text-white">📄 完整初稿 (中文)</h3>
+                            {fullDraftTextEn && !fullDraftTextZh && (
+                              <button
+                                onClick={handleTranslateFullDraft}
+                                disabled={isTranslatingFullDraft || isCurrentTabLocked}
+                                className="px-3 py-1 bg-purple-600 hover:bg-purple-500 text-white text-sm rounded transition-colors disabled:opacity-50"
+                              >
+                                {isTranslatingFullDraft ? '🔄 翻譯中...' : '🌐 翻譯成中文'}
+                              </button>
+                            )}
                           </div>
                           <textarea
                             id="draft-zh-scroll"
-                            value={fullDraftTextZh}
+                            value={fullDraftTextZh || ''}
                             readOnly
-                            placeholder="完整初稿中文内容将在这里显示..."
+                            placeholder={fullDraftTextZh ? '' : '點擊「🌐 翻譯成中文」取得中文版本'}
                             disabled={isCurrentTabLocked}
                             onScroll={(e) => {
                               const target = e.target as HTMLTextAreaElement;
@@ -6810,10 +6871,10 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                                 </div>
                               </div>
 
-                              {/* 显示评论内容 - 依內容語言顯示 */}
+                              {/* 显示评论内容 - 有內容即顯示，依內容語言決定區塊 */}
                               {hasAnyReview ? (
                                 <>
-                                  {/* ✍️ 教師評論 (English) - 僅當內容語言=英文時顯示 */}
+                                  {/* ✍️ 教師評論 (English) - 內容語言=英文時顯示 */}
                                   {form.language === '英文' && reviewEn && (
                                     <div className="mb-3 p-3 bg-slate-800 rounded border border-slate-500">
                                       <h5 className="text-sm font-medium text-amber-300 mb-2">✍️ 教師評論 (English)</h5>
@@ -6822,7 +6883,7 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                                       </div>
                                     </div>
                                   )}
-                                  {/* 📄 教師評論 (中文) */}
+                                  {/* 📄 教師評論 (中文) - 有翻譯時顯示 */}
                                   {reviewZh && (
                                     <div className="p-3 bg-slate-800 rounded border border-slate-500">
                                       <h5 className="text-sm font-medium text-amber-300 mb-2">📄 教師評論 (中文)</h5>
@@ -6831,10 +6892,10 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                                       </div>
                                     </div>
                                   )}
-                                  {/* 僅有英文且內容語言=中文時，顯示於中文區（可點翻譯取得中文） */}
+                                  {/* 內容語言=中文且僅有英文時，顯示於中文區 */}
                                   {form.language === '中文' && reviewEn && !reviewZh && (
                                     <div className="p-3 bg-slate-800 rounded border border-slate-500">
-                                      <h5 className="text-sm font-medium text-amber-300 mb-2">📄 教師評論 (中文)</h5>
+                                      <h5 className="text-sm font-medium text-amber-300 mb-2">📄 教師評論 (中文) <span className="text-xs text-slate-400">（尚未翻譯）</span></h5>
                                       <div className="text-slate-300 text-sm leading-relaxed whitespace-pre-wrap">
                                         {reviewEn}
                                       </div>

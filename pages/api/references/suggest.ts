@@ -371,6 +371,7 @@ async function suggestReferences(
     if (settings?.excludeLoginRequiredPublishers) {
       const blockedDomains = [
         'taylorfrancis.com',
+        'tandfonline.com',  // Taylor & Francis Online
         'link.springer.com',
         'springer.com',
         'sciencedirect.com',
