@@ -20,11 +20,15 @@ async function fetchCrossrefDirect(query: string, limit: number, opts: any): Pro
       const url = u.toString();
       console.log(`[Direct CrossRef] 搜索: "${query}", 参数: ${queryParam}, URL: ${url}`);
       
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 12000);
       const r = await fetch(url, { 
         headers: { 
           'User-Agent': 'AssignmentTerminator/1.0 (https://assignment-terminator.example)' 
-        } 
+        },
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
       
       if (!r.ok) {
         const errorText = await r.text().catch(() => '');
@@ -88,7 +92,10 @@ async function fetchSemanticScholarDirect(query: string, limit: number): Promise
     const s2Key = process.env.SEMANTIC_SCHOLAR_API_KEY;
     if (s2Key) headers['x-api-key'] = s2Key;
     
-    const r = await fetch(url, { headers });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+    const r = await fetch(url, { headers, signal: controller.signal });
+    clearTimeout(timeout);
     
     if (!r.ok) {
       const errorText = await r.text().catch(() => '');
@@ -96,7 +103,10 @@ async function fetchSemanticScholarDirect(query: string, limit: number): Promise
         console.warn(`[Direct SemanticScholar] Rate limit exceeded. 等待 2 秒后重试...`);
         await new Promise(resolve => setTimeout(resolve, 2000));
         // 重试一次
-        const retryR = await fetch(url, { headers });
+        const retryController = new AbortController();
+        const retryTimeout = setTimeout(() => retryController.abort(), 12000);
+        const retryR = await fetch(url, { headers, signal: retryController.signal });
+        clearTimeout(retryTimeout);
         if (!retryR.ok) {
           console.error(`[Direct SemanticScholar] 重试后仍然失败: ${retryR.status}`);
           return [];
@@ -138,6 +148,75 @@ async function fetchSemanticScholarDirect(query: string, limit: number): Promise
     })).filter((v: any) => v.title && v.title.length > 5 && v.url);
   } catch (err) {
     console.error(`[Direct SemanticScholar] 错误:`, err);
+    return [];
+  }
+}
+
+// OpenAlex fallback - free API, good coverage, no auth required for basic use
+async function fetchOpenAlexDirect(query: string, limit: number): Promise<any[]> {
+  try {
+    const u = new URL('https://api.openalex.org/works');
+    u.searchParams.set('search', query);
+    u.searchParams.set('per-page', String(Math.max(3, Math.min(limit, 25))));
+    
+    const url = u.toString();
+    console.log(`[OpenAlex] 搜索: "${query}", URL: ${url}`);
+    
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    
+    const r = await fetch(url, {
+      headers: {
+        'User-Agent': 'AssignmentTerminator/1.0 (https://assignment-terminator.example)',
+        'Accept': 'application/json',
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    
+    if (!r.ok) {
+      const errorText = await r.text().catch(() => '');
+      console.error(`[OpenAlex] HTTP错误: ${r.status} ${errorText.substring(0, 200)}`);
+      return [];
+    }
+    
+    const j: any = await r.json().catch((err: any) => {
+      console.error(`[OpenAlex] JSON解析错误:`, err);
+      return null;
+    });
+    
+    if (!j?.results?.length) {
+      console.log(`[OpenAlex] 未找到结果`);
+      return [];
+    }
+    
+    const items = j.results;
+    console.log(`[OpenAlex] 找到 ${items.length} 条结果`);
+    
+    return items.map((it: any) => {
+      const doi = it?.ids?.doi || it?.doi;
+      const doiStr = typeof doi === 'string' ? (doi.startsWith('http') ? doi : `https://doi.org/${doi.replace(/^https?:\/\/doi\.org\//i, '')}`) : null;
+      const url = it?.primary_location?.landing_page_url || doiStr || it?.id || '';
+      const authors = (it?.authorships ?? [])
+        .map((a: any) => a?.author?.display_name || a?.raw_author_name)
+        .filter(Boolean)
+        .join('; ') || 'Unknown Author';
+      return {
+        title: (it?.display_name || it?.title || '').trim(),
+        authors,
+        year: it?.publication_year || new Date().getFullYear(),
+        source: it?.primary_location?.source?.display_name || 'OpenAlex',
+        url,
+        doi: doiStr ? doiStr.replace(/^https?:\/\/doi\.org\//i, '') : null,
+        summary: '', // OpenAlex abstract_inverted_index needs reconstruction; metadata fetch will get it
+      };
+    }).filter((v: any) => v.title && v.title.length > 5 && v.url);
+  } catch (err: any) {
+    if (err?.name === 'AbortError') {
+      console.error(`[OpenAlex] 请求超时`);
+    } else {
+      console.error(`[OpenAlex] 错误:`, err?.message || err);
+    }
     return [];
   }
 }
@@ -240,6 +319,21 @@ async function suggestReferences(
       } catch (error: any) {
         console.error(`数据源 ${source} 失败:`, error?.message || error);
         // 继续尝试其他数据源
+      }
+    }
+    
+    // 当主数据源返回空或很少结果时，使用 OpenAlex 作为备选
+    if (allRefs.length < 3) {
+      console.log(`主数据源结果不足 (${allRefs.length} 条)，尝试 OpenAlex 备选...`);
+      await new Promise(resolve => setTimeout(resolve, 300));
+      try {
+        const openAlexResults = await fetchOpenAlexDirect(cleanKeyword, 10);
+        if (openAlexResults.length > 0) {
+          allRefs.push(...openAlexResults);
+          console.log(`[OpenAlex 备选] 添加 ${openAlexResults.length} 条结果`);
+        }
+      } catch (err: any) {
+        console.error(`[OpenAlex 备选] 失败:`, err?.message || err);
       }
     }
     

@@ -41,6 +41,15 @@ This document outlines the purpose and usage of each API endpoint under `/pages/
 
 ---
 
+## 🧪 `/api/ai-check.ts`
+**Purpose**: AI detection check using GPTZero professional API (or LLM fallback).  
+**Input**: `text` (min 50 chars)  
+**Output**: `{ aiPercent, humanPercent, source: 'gptzero'|'llm', documentClassification? }`  
+**Env**: Set `GPTZERO_API_KEY` for GPTZero detection. Get API key at https://app.gptzero.me/api  
+**Notes**: When GPTZERO_API_KEY is not set, falls back to LLM-based estimation.
+
+---
+
 ## ✅ Decommissioned:
 **`/api/generate.ts` or `Step1 Step2 Final Api`**  
 This was the monolithic handler for all writing steps.  

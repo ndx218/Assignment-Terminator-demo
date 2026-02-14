@@ -139,7 +139,7 @@ export default function HomePage() {
   const [currentGeneratingSection, setCurrentGeneratingSection] = useState<number | null>(null);
   const [selectedModel, setSelectedModel] = useState('gpt-5');
   const [reviewContent, setReviewContent] = useState(''); // 完整评论（向后兼容）
-  const [reviewSections, setReviewSections] = useState<{[key: number]: string}>({}); // ✅ 分段评论
+  const [reviewSections, setReviewSections] = useState<{[key: number]: string | {en: string, zh: string}}>({}); // ✅ 分段评论（支持 en/zh）
   const [isGeneratingReview, setIsGeneratingReview] = useState(false);
   const [currentGeneratingReviewSection, setCurrentGeneratingReviewSection] = useState<number | null>(null);
   const [isTranslatingReview, setIsTranslatingReview] = useState(false); // ✅ 翻译状态
@@ -152,6 +152,10 @@ export default function HomePage() {
   const [isGeneratingHumanized, setIsGeneratingHumanized] = useState(false);
   const [currentGeneratingHumanizedSection, setCurrentGeneratingHumanizedSection] = useState<number | null>(null);
   const [humanizedLang, setHumanizedLang] = useState<'en' | 'zh'>('en'); // ✅ 人性化显示语言
+  const [aiCheckResults, setAiCheckResults] = useState<{[key: number]: number}>({}); // ✅ 分段 AI 檢測結果 (aiPercent)
+  const [aiCheckFullResult, setAiCheckFullResult] = useState<number | null>(null); // ✅ 完整人性化 AI 檢測
+  const [aiCheckSource, setAiCheckSource] = useState<'gptzero' | 'llm' | null>(null); // ✅ 檢測來源
+  const [isCheckingAI, setIsCheckingAI] = useState<number | 'full' | null>(null); // ✅ 正在檢測的段落或 'full'
   const [regeneratingBullet, setRegeneratingBullet] = useState<{pointId: number, bulletIndex: number, category: 'Hook' | 'Background' | 'Thesis'} | null>(null);
   
   const [outlinePoints, setOutlinePoints] = useState<OutlinePoint[]>([]);
@@ -2217,10 +2221,12 @@ Output only the bullet point content, without any labels or numbering.`
 
         const data = await response.json();
         syncCreditsFromResponse(data);
-        setReviewSections(prev => ({
-          ...prev,
-          [sectionId]: data.feedback || ''
-        }));
+        const feedback = data.feedback || '';
+        setReviewSections(prev => {
+          const existing = prev[sectionId];
+          const prevObj = typeof existing === 'string' ? { en: existing, zh: '' } : (existing || { en: '', zh: '' });
+          return { ...prev, [sectionId]: { ...prevObj, en: feedback } };
+        });
         alert(`✅ 第${sectionId}段評論生成成功！`);
       } catch (error) {
         console.error('生成教師評論時發生錯誤:', error);
@@ -2276,10 +2282,12 @@ Output only the bullet point content, without any labels or numbering.`
 
           const data = await response.json();
           syncCreditsFromResponse(data);
-          setReviewSections(prev => ({
-            ...prev,
-            [sectionId]: data.feedback || ''
-          }));
+          const feedback = data.feedback || '';
+          setReviewSections(prev => {
+            const existing = prev[sectionId];
+            const prevObj = typeof existing === 'string' ? { en: existing, zh: '' } : (existing || { en: '', zh: '' });
+            return { ...prev, [sectionId]: { ...prevObj, en: feedback } };
+          });
         }
         
         alert(`✅ 所有段落評論生成完成！（共${sectionsToGenerate.length}段）`);
@@ -2293,41 +2301,46 @@ Output only the bullet point content, without any labels or numbering.`
     }
   };
 
-  // ✅ 翻译评论（英文转中文）
+  // ✅ 翻译评论（英文转中文），保留英文，新增 .zh
+  const getReviewEn = (val: string | {en: string, zh: string} | undefined) => {
+    if (!val) return '';
+    return typeof val === 'string' ? val : (val.en || '');
+  };
+  const getReviewZh = (val: string | {en: string, zh: string} | undefined) => {
+    if (!val) return '';
+    return typeof val === 'string' ? '' : (val.zh || '');
+  };
+  const hasReview = (val: string | {en: string, zh: string} | undefined) => {
+    if (!val) return false;
+    return typeof val === 'string' ? !!val.trim() : !!(val.en?.trim() || val.zh?.trim());
+  };
   const handleTranslateReview = async (sectionId?: number) => {
     setIsTranslatingReview(true);
     try {
       if (sectionId) {
-        // 翻译单个段落评论
-        const reviewText = reviewSections[sectionId];
-        if (!reviewText || !reviewText.trim()) {
-          alert('該段落沒有評論內容可翻譯');
+        const reviewEn = getReviewEn(reviewSections[sectionId]);
+        if (!reviewEn || !reviewEn.trim()) {
+          alert('該段落沒有英文評論可翻譯');
           return;
         }
 
         const response = await fetch('/api/translate', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            text: reviewText,
-            targetLang: 'zh',
-          }),
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: reviewEn, targetLang: 'zh' }),
         });
 
-        if (!response.ok) {
-          throw new Error('翻譯失敗');
-        }
+        if (!response.ok) throw new Error('翻譯失敗');
 
         const data = await response.json();
-        setReviewSections(prev => ({
-          ...prev,
-          [sectionId]: data.translated || reviewText,
-        }));
+        const translated = data.translated || reviewEn;
+        setReviewSections(prev => {
+          const existing = prev[sectionId];
+          const prevObj = typeof existing === 'string' ? { en: existing, zh: '' } : (existing || { en: '', zh: '' });
+          return { ...prev, [sectionId]: { ...prevObj, zh: translated } };
+        });
         alert('✅ 翻譯完成！');
       } else {
-        // 翻译所有段落评论
         const sectionsToTranslate = Object.keys(reviewSections).map(Number);
         if (sectionsToTranslate.length === 0) {
           alert('沒有評論內容可翻譯');
@@ -2335,28 +2348,24 @@ Output only the bullet point content, without any labels or numbering.`
         }
 
         for (const sid of sectionsToTranslate) {
-          const reviewText = reviewSections[sid];
-          if (!reviewText || !reviewText.trim()) continue;
+          const reviewEn = getReviewEn(reviewSections[sid]);
+          if (!reviewEn || !reviewEn.trim()) continue;
 
           const response = await fetch('/api/translate', {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              text: reviewText,
-              targetLang: 'zh',
-            }),
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: reviewEn, targetLang: 'zh' }),
           });
 
           if (response.ok) {
             const data = await response.json();
-            setReviewSections(prev => ({
-              ...prev,
-              [sid]: data.translated || reviewText,
-            }));
+            const translated = data.translated || reviewEn;
+            setReviewSections(prev => {
+              const existing = prev[sid];
+              const prevObj = typeof existing === 'string' ? { en: existing, zh: '' } : (existing || { en: '', zh: '' });
+              return { ...prev, [sid]: { ...prevObj, zh: translated } };
+            });
           }
-          // 每次翻译之间有短暂延迟
           await new Promise(resolve => setTimeout(resolve, 300));
         }
         alert(`✅ 所有評論翻譯完成！（共${sectionsToTranslate.length}段）`);
@@ -2374,8 +2383,11 @@ Output only the bullet point content, without any labels or numbering.`
     if (type === 'section' && sectionId) {
       // 分段生成：针对单个段落
       const draftText = draftSections[sectionId];
-      const reviewText = reviewSections[sectionId];
+      const reviewVal = reviewSections[sectionId];
       const draftTextStr = typeof draftText === 'string' ? draftText : (draftText?.en || draftText?.zh || '');
+      const reviewText = form.language === '中文' 
+        ? (getReviewZh(reviewVal) || getReviewEn(reviewVal)) 
+        : (getReviewEn(reviewVal) || getReviewZh(reviewVal));
       
       if (!draftTextStr || !draftTextStr.trim()) {
         alert(`請先生成第${sectionId}段的草稿內容`);
@@ -2471,8 +2483,7 @@ Output only the bullet point content, without any labels or numbering.`
           const draft = draftSections[point.id];
           const review = reviewSections[point.id];
           const hasDraft = draft && (typeof draft === 'string' ? draft.trim() : (typeof draft === 'object' && draft.en ? (draft.en.trim() || draft.zh?.trim()) : ''));
-          const hasReview = review && (typeof review === 'string' ? review.trim() : '');
-          return hasDraft && hasReview;
+          return hasDraft && hasReview(review);
         })
         .map(point => point.id);
 
@@ -2492,7 +2503,10 @@ Output only the bullet point content, without any labels or numbering.`
           setCurrentGeneratingRevisionSection(sectionId);
           
           const draftText = draftSections[sectionId];
-          const reviewText = reviewSections[sectionId];
+          const reviewVal = reviewSections[sectionId];
+          const reviewText = form.language === '中文' 
+            ? (getReviewZh(reviewVal) || getReviewEn(reviewVal)) 
+            : (getReviewEn(reviewVal) || getReviewZh(reviewVal));
           
           // ✅ 获取目标字数和段落类型
           const targetWordCount = getSectionWordCount(sectionId, form);
@@ -2776,6 +2790,53 @@ Output only the bullet point content, without any labels or numbering.`
         setIsGeneratingHumanized(false);
         setCurrentGeneratingHumanizedSection(null);
       }
+    }
+  };
+
+  // ✅ AI 檢測：取得文本被判定為 AI 生成的可能性 (0-100%)
+  const handleAiCheck = async (sectionId?: number) => {
+    const target = sectionId ?? 'full';
+    setIsCheckingAI(target);
+    try {
+      let text = '';
+      if (sectionId) {
+        const section = humanizedSections[sectionId];
+        if (!section) return;
+        text = form.language === '英文' ? (section.en || section.zh || '') : (section.zh || section.en || '');
+      } else {
+        text = outlinePoints
+          .filter(p => humanizedSections[p.id])
+          .map(p => {
+            const s = humanizedSections[p.id];
+            return s ? (form.language === '英文' ? (s.en || s.zh || '') : (s.zh || s.en || '')) : '';
+          })
+          .filter(Boolean)
+          .join('\n\n');
+      }
+      if (!text || text.trim().length < 50) {
+        alert('文本過短，至少需要 50 字元才能檢測');
+        return;
+      }
+      const res = await fetch('/api/ai-check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: text.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '檢測失敗');
+      const aiPercent = data.aiPercent ?? 0;
+      const source = data.source ?? null;
+      setAiCheckSource(source);
+      if (sectionId != null) {
+        setAiCheckResults(prev => ({ ...prev, [sectionId]: aiPercent }));
+      } else {
+        setAiCheckFullResult(aiPercent);
+      }
+    } catch (err: any) {
+      console.error('AI 檢測失敗:', err);
+      alert(err?.message || 'AI 檢測失敗，請稍後再試');
+    } finally {
+      setIsCheckingAI(null);
     }
   };
 
@@ -6613,8 +6674,8 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                     ))}
                   </div>
                   
-                      {/* 完整初稿显示区域 - 英文版 */}
-                      {fullDraftTextEn && (
+                      {/* 完整初稿显示区域 - 英文版（僅當內容語言=英文時顯示） */}
+                      {fullDraftTextEn && form.language === '英文' && (
                     <div className="mt-6 p-4 bg-slate-700 rounded-lg border border-slate-600">
                       <div className="flex items-center justify-between mb-3">
                             <h3 className="text-lg font-semibold text-white">✍️ 完整初稿 (English)</h3>
@@ -6641,7 +6702,7 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                         </div>
                       )}
                       
-                      {/* 完整初稿显示区域 - 中文版 */}
+                      {/* 完整初稿显示区域 - 中文版（內容語言=中文時只顯示此區；內容語言=英文時與英文區一併顯示） */}
                       {fullDraftTextZh && (
                         <div className="mt-6 p-4 bg-slate-700 rounded-lg border border-slate-600">
                           <div className="flex items-center justify-between mb-3">
@@ -6707,6 +6768,9 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                         {outlinePoints.map((point) => {
                           const sectionDraft = draftSections[point.id];
                           const sectionReview = reviewSections[point.id];
+                          const reviewEn = getReviewEn(sectionReview);
+                          const reviewZh = getReviewZh(sectionReview);
+                          const hasAnyReview = hasReview(sectionReview);
                           
                           return (
                             <div key={point.id} className="p-4 bg-slate-700 rounded-lg border border-slate-600">
@@ -6726,9 +6790,9 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                                             : 'bg-indigo-600 text-white hover:bg-indigo-500'
                                         }`}
                                       >
-                                        {currentGeneratingReviewSection === point.id ? '🔄 生成中...' : sectionReview ? '🔄 重新生成' : '📋 生成评论 (英文)'}
+                                        {currentGeneratingReviewSection === point.id ? '🔄 生成中...' : hasAnyReview ? '🔄 重新生成' : '📋 生成评论 (英文)'}
                                       </button>
-                                      {sectionReview && (
+                                      {hasAnyReview && (
                                         <button
                                           onClick={() => handleTranslateReview(point.id)}
                                           disabled={isTranslatingReview || isCurrentTabLocked}
@@ -6746,13 +6810,37 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                                 </div>
                               </div>
 
-                              {/* 显示评论内容 */}
-                              {sectionReview ? (
-                                <div className="p-3 bg-slate-800 rounded border border-slate-500">
-                                  <div className="text-slate-300 text-sm leading-relaxed whitespace-pre-wrap">
-                                    {sectionReview}
-                                  </div>
-                                </div>
+                              {/* 显示评论内容 - 依內容語言顯示 */}
+                              {hasAnyReview ? (
+                                <>
+                                  {/* ✍️ 教師評論 (English) - 僅當內容語言=英文時顯示 */}
+                                  {form.language === '英文' && reviewEn && (
+                                    <div className="mb-3 p-3 bg-slate-800 rounded border border-slate-500">
+                                      <h5 className="text-sm font-medium text-amber-300 mb-2">✍️ 教師評論 (English)</h5>
+                                      <div className="text-slate-300 text-sm leading-relaxed whitespace-pre-wrap">
+                                        {reviewEn}
+                                      </div>
+                                    </div>
+                                  )}
+                                  {/* 📄 教師評論 (中文) */}
+                                  {reviewZh && (
+                                    <div className="p-3 bg-slate-800 rounded border border-slate-500">
+                                      <h5 className="text-sm font-medium text-amber-300 mb-2">📄 教師評論 (中文)</h5>
+                                      <div className="text-slate-300 text-sm leading-relaxed whitespace-pre-wrap">
+                                        {reviewZh}
+                                      </div>
+                                    </div>
+                                  )}
+                                  {/* 僅有英文且內容語言=中文時，顯示於中文區（可點翻譯取得中文） */}
+                                  {form.language === '中文' && reviewEn && !reviewZh && (
+                                    <div className="p-3 bg-slate-800 rounded border border-slate-500">
+                                      <h5 className="text-sm font-medium text-amber-300 mb-2">📄 教師評論 (中文)</h5>
+                                      <div className="text-slate-300 text-sm leading-relaxed whitespace-pre-wrap">
+                                        {reviewEn}
+                                      </div>
+                                    </div>
+                                  )}
+                                </>
                               ) : sectionDraft ? (
                                 <div className="p-3 bg-slate-800 rounded border border-slate-500">
                                   <p className="text-slate-400 text-sm">点击上方按钮生成此段落的评论</p>
@@ -6798,13 +6886,14 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                           const sectionRevision = revisionSections[point.id];
                           const sectionDraft = draftSections[point.id];
                           const sectionReview = reviewSections[point.id];
+                          const hasAnyReview = hasReview(sectionReview);
                           
                           return (
                             <div key={point.id} className="p-4 bg-slate-700 rounded-lg border border-slate-600">
                               <div className="flex items-center justify-between mb-3">
                                 <h4 className="text-lg font-medium text-white">{point.id}. {getDisplayTitle(point, form)}</h4>
                                 <div className="flex gap-2">
-                                  {sectionDraft && sectionReview ? (
+                                  {sectionDraft && hasAnyReview ? (
                                     <>
                                       <button
                                         onClick={() => handleGenerateRevision('section', point.id)}
@@ -6822,7 +6911,7 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                                     </>
                                   ) : (
                                     <span className="px-3 py-1 text-sm text-slate-400">
-                                      {!sectionDraft && !sectionReview 
+                                      {!sectionDraft && !hasAnyReview 
                                         ? '請先生成草稿和評論'
                                         : !sectionDraft 
                                         ? '請先生成草稿'
@@ -6832,83 +6921,90 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                                 </div>
                               </div>
 
-                              {/* 显示修订稿内容 - 支持语言切换 */}
+                              {/* 显示修订稿内容 - 依內容語言顯示 */}
                               {sectionRevision ? (
-                                <div className="p-3 bg-slate-800 rounded border border-slate-500">
-                                  <div className="flex items-center justify-between mb-2">
-                                    <h5 className="text-sm font-medium text-amber-300">
-                                      ✨ 修訂稿內容 ({form.language === '英文' ? 'English' : '中文'})
-                                      <span className="text-xs text-slate-400 ml-2">
-                                        {(() => {
-                                          const displayContent = typeof sectionRevision === 'string' 
-                                            ? sectionRevision 
-                                            : (form.language === '英文' ? (sectionRevision.en || sectionRevision.zh || '') : (sectionRevision.zh || sectionRevision.en || ''));
-                                          const wordCount = countText(displayContent, form.language === '中文');
-                                          return form.language === '中文' ? `(${wordCount} 字)` : `(${wordCount} words)`;
-                                        })()}
-                                      </span>
-                                    </h5>
-                                    <div className="flex gap-2">
-                                      <button
-                                        onClick={() => {
-                                          const langKey = form.language === '英文' ? 'en' : 'zh';
-                                          const currentContent = typeof sectionRevision === 'string' 
-                                            ? sectionRevision 
-                                            : (langKey === 'en' ? sectionRevision.en : sectionRevision.zh) || sectionRevision.en || sectionRevision.zh || '';
-                                          const newContent = prompt(`編輯修訂稿內容 (${form.language === '英文' ? 'English' : '中文'}):`, currentContent);
-                                          if (newContent !== null) {
-                                            if (typeof sectionRevision === 'string') {
-                                              // 旧格式转换为新格式
+                                <>
+                                  {/* ✍️ 修訂稿 (English) - 僅當內容語言=英文時顯示 */}
+                                  {form.language === '英文' && (typeof sectionRevision === 'string' ? sectionRevision : sectionRevision.en || sectionRevision.zh) && (
+                                    <div className="mb-3 p-3 bg-slate-800 rounded border border-slate-500">
+                                      <div className="flex items-center justify-between mb-2">
+                                        <h5 className="text-sm font-medium text-amber-300">
+                                          ✍️ 修訂稿 (English)
+                                          <span className="text-xs text-slate-400 ml-2">
+                                            {(() => {
+                                              const content = typeof sectionRevision === 'string' ? sectionRevision : (sectionRevision.en || sectionRevision.zh || '');
+                                              return `(${countText(content, false)} words)`;
+                                            })()}
+                                          </span>
+                                        </h5>
+                                        <button
+                                          onClick={() => {
+                                            const currentContent = typeof sectionRevision === 'string' ? sectionRevision : (sectionRevision.en || sectionRevision.zh || '');
+                                            const newContent = prompt('編輯修訂稿內容 (English):', currentContent);
+                                            if (newContent !== null) {
                                               setRevisionSections(prev => {
                                                 const prevValue = prev[point.id] || { en: '', zh: '' };
-                                                return {
-                                                  ...prev,
-                                                  [point.id]: {
-                                                    en: form.language === '英文' ? newContent : prevValue.en,
-                                                    zh: form.language === '中文' ? newContent : prevValue.zh,
-                                                  }
-                                                };
-                                              });
-                                            } else {
-                                              setRevisionSections(prev => {
-                                                const prevValue = prev[point.id] || { en: '', zh: '' };
-                                                return {
-                                                  ...prev,
-                                                  [point.id]: {
-                                                    ...prevValue,
-                                                    [langKey]: newContent
-                                                  }
-                                                };
+                                                const prevObj = typeof prevValue === 'string' ? { en: prevValue, zh: '' } : prevValue;
+                                                return { ...prev, [point.id]: { ...prevObj, en: newContent } };
                                               });
                                             }
-                                          }
-                                        }}
-                                        className="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors"
-                                        disabled={isCurrentTabLocked}
-                                      >
-                                        ✏️ 編輯
-                                      </button>
+                                          }}
+                                          className="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors"
+                                          disabled={isCurrentTabLocked}
+                                        >
+                                          ✏️ 編輯
+                                        </button>
+                                      </div>
+                                      <div className="text-slate-300 text-sm leading-relaxed whitespace-pre-wrap">
+                                        {typeof sectionRevision === 'string' ? sectionRevision : (sectionRevision.en || sectionRevision.zh || '')}
+                                      </div>
                                     </div>
-                                  </div>
-                                  <div className="text-slate-300 text-sm leading-relaxed whitespace-pre-wrap">
-                                    {(() => {
-                                      if (typeof sectionRevision === 'string') {
-                                        return sectionRevision;
-                                      }
-                                      return form.language === '英文' 
-                                        ? (sectionRevision.en || sectionRevision.zh || '') 
-                                        : (sectionRevision.zh || sectionRevision.en || '');
-                                    })()}
-                                  </div>
-                                </div>
-                              ) : sectionDraft && sectionReview ? (
+                                  )}
+                                  {/* 📄 修訂稿 (中文) - 僅當內容語言=中文時顯示 */}
+                                  {form.language === '中文' && (typeof sectionRevision === 'string' ? sectionRevision : sectionRevision.zh || sectionRevision.en) && (
+                                    <div className="p-3 bg-slate-800 rounded border border-slate-500">
+                                      <div className="flex items-center justify-between mb-2">
+                                        <h5 className="text-sm font-medium text-amber-300">
+                                          📄 修訂稿 (中文)
+                                          <span className="text-xs text-slate-400 ml-2">
+                                            {(() => {
+                                              const content = typeof sectionRevision === 'string' ? sectionRevision : (sectionRevision.zh || sectionRevision.en || '');
+                                              return `(${countText(content, true)} 字)`;
+                                            })()}
+                                          </span>
+                                        </h5>
+                                        <button
+                                          onClick={() => {
+                                            const currentContent = typeof sectionRevision === 'string' ? sectionRevision : (sectionRevision.zh || sectionRevision.en || '');
+                                            const newContent = prompt('編輯修訂稿內容 (中文):', currentContent);
+                                            if (newContent !== null) {
+                                              setRevisionSections(prev => {
+                                                const prevValue = prev[point.id] || { en: '', zh: '' };
+                                                const prevObj = typeof prevValue === 'string' ? { en: prevValue, zh: '' } : prevValue;
+                                                return { ...prev, [point.id]: { ...prevObj, zh: newContent } };
+                                              });
+                                            }
+                                          }}
+                                          className="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors"
+                                          disabled={isCurrentTabLocked}
+                                        >
+                                          ✏️ 編輯
+                                        </button>
+                                      </div>
+                                      <div className="text-slate-300 text-sm leading-relaxed whitespace-pre-wrap">
+                                        {typeof sectionRevision === 'string' ? sectionRevision : (sectionRevision.zh || sectionRevision.en || '')}
+                                      </div>
+                                    </div>
+                                  )}
+                                </>
+                              ) : sectionDraft && hasAnyReview ? (
                                 <div className="p-3 bg-slate-800 rounded border border-slate-500">
                                   <p className="text-slate-400 text-sm">點擊上方按鈕生成此段落的修訂稿</p>
                                 </div>
                               ) : (
                                 <div className="p-3 bg-slate-800 rounded border border-slate-500">
                                   <p className="text-slate-400 text-sm">
-                                    {!sectionDraft && !sectionReview 
+                                    {!sectionDraft && !hasAnyReview 
                                       ? '請先生成此段落的草稿內容和評論'
                                       : !sectionDraft 
                                       ? '請先生成此段落的草稿內容'
@@ -6921,8 +7017,8 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                         })}
                       </div>
                       
-                      {/* 完整修订稿显示区域 - 英文版 */}
-                      {Object.keys(revisionSections).length > 0 && (
+                      {/* 完整修订稿显示区域 - 英文版（僅當內容語言=英文時顯示） */}
+                      {Object.keys(revisionSections).length > 0 && form.language === '英文' && (
                         <div className="mt-6 p-4 bg-slate-700 rounded-lg border border-slate-600">
                           <div className="flex items-center justify-between mb-3">
                             <h3 className="text-lg font-semibold text-white">✍️ 完整修訂稿 (English)</h3>
@@ -7008,7 +7104,25 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                       <div className="mb-4 p-4 bg-slate-700 rounded-lg border border-slate-600">
                         <div className="flex items-center justify-between mb-3">
                           <h3 className="text-lg font-semibold text-white">✨ 人性化處理</h3>
-                          <div className="flex gap-2">
+                          <div className="flex gap-2 items-center">
+                            {Object.keys(humanizedSections).length > 0 && (
+                              <button
+                                onClick={() => handleAiCheck()}
+                                disabled={isCheckingAI === 'full'}
+                                className="px-3 py-2 bg-violet-600 hover:bg-violet-500 text-white text-sm rounded transition-colors disabled:opacity-50 font-medium"
+                              >
+                                {isCheckingAI === 'full' ? '🔄 檢測中...' : '🧪 AI 檢測'}
+                              </button>
+                            )}
+                            {aiCheckFullResult != null && (
+                              <span className={`px-3 py-1 rounded text-sm font-semibold ${
+                                aiCheckFullResult <= 30 ? 'bg-emerald-600/80 text-white' :
+                                aiCheckFullResult <= 60 ? 'bg-amber-600/80 text-white' :
+                                'bg-red-600/80 text-white'
+                              }`} title={aiCheckSource === 'gptzero' ? 'GPTZero 專業檢測' : 'LLM 估計'}>
+                                {aiCheckSource === 'gptzero' ? 'GPTZero ' : ''}AI: {aiCheckFullResult}%
+                              </span>
+                            )}
                             <button 
                               onClick={() => handleGenerateHumanized('full')}
                               disabled={isGeneratingHumanized}
@@ -7020,7 +7134,7 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                         </div>
                         
                         <p className="text-xs text-slate-400">
-                          💡 提示：人性化處理將使文本更難被 AI 偵測，同時保持內容與語意一致。系統會自動生成中英文版本，兩個版本會同時顯示並支持同步滾動。
+                          💡 提示：人性化處理將使文本更難被 AI 偵測。點擊「🧪 AI 檢測」可查看 AI 百分比（內建 LLM 估計，成本為 0）。0%=人類風格，100%=AI 風格。
                         </p>
                       </div>
 
@@ -7061,47 +7175,110 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                                 </div>
                               </div>
 
-                              {/* 显示人性化文本内容 */}
+                              {/* 显示人性化文本内容 - 依內容語言顯示 */}
                               {sectionHumanized ? (
-                                <div className="p-3 bg-slate-800 rounded border border-slate-500">
-                                  <div className="flex items-center justify-between mb-2">
-                                    <h5 className="text-sm font-medium text-emerald-300">
-                                      ✨ 人性化內容 ({form.language === '英文' ? 'English' : '中文'})
-                                      <span className="text-xs text-slate-400 ml-2">
-                                        {(() => {
-                                          const displayContent = form.language === '英文' ? sectionHumanized.en : sectionHumanized.zh;
-                                          const wordCount = countText(displayContent, form.language === '中文');
-                                          return form.language === '中文' ? `(${wordCount} 字)` : `(${wordCount} words)`;
-                                        })()}
-                                      </span>
-                                    </h5>
-                                    <div className="flex gap-2">
-                                      <button
-                                        onClick={() => {
-                                          const langKey = form.language === '英文' ? 'en' : 'zh';
-                                          const currentContent = langKey === 'en' ? sectionHumanized.en : sectionHumanized.zh;
-                                          const newContent = prompt('編輯人性化內容:', currentContent);
-                                          if (newContent !== null) {
-                                            setHumanizedSections(prev => ({
-                                              ...prev,
-                                              [point.id]: {
-                                                ...prev[point.id],
-                                                [langKey]: newContent
-                                              }
-                                            }));
-                                          }
-                                        }}
-                                        className="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors"
-                                        disabled={isCurrentTabLocked}
-                                      >
-                                        ✏️ 編輯
-                                      </button>
+                                <>
+                                  {/* ✍️ 人性化 (English) - 僅當內容語言=英文時顯示 */}
+                                  {form.language === '英文' && (sectionHumanized.en || sectionHumanized.zh) && (
+                                    <div className="p-3 bg-slate-800 rounded border border-slate-500">
+                                      <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                                        <h5 className="text-sm font-medium text-emerald-300">
+                                          ✍️ 人性化 (English)
+                                          <span className="text-xs text-slate-400 ml-2">
+                                            ({countText(sectionHumanized.en || sectionHumanized.zh || '', false)} words)
+                                          </span>
+                                        </h5>
+                                        <div className="flex gap-2 items-center">
+                                          <button
+                                            onClick={() => handleAiCheck(point.id)}
+                                            disabled={isCheckingAI === point.id}
+                                            className="px-2 py-1 bg-violet-600 text-white text-xs rounded hover:bg-violet-500 transition-colors disabled:opacity-50"
+                                          >
+                                            {isCheckingAI === point.id ? '🔄' : '🧪 AI'}
+                                          </button>
+                                          {aiCheckResults[point.id] != null && (
+                                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                              aiCheckResults[point.id] <= 30 ? 'bg-emerald-600/80' :
+                                              aiCheckResults[point.id] <= 60 ? 'bg-amber-600/80' :
+                                              'bg-red-600/80'
+                                            } text-white`}>
+                                              AI: {aiCheckResults[point.id]}%
+                                            </span>
+                                          )}
+                                          <button
+                                          onClick={() => {
+                                            const currentContent = sectionHumanized.en || sectionHumanized.zh || '';
+                                            const newContent = prompt('編輯人性化內容 (English):', currentContent);
+                                            if (newContent !== null) {
+                                              setHumanizedSections(prev => ({
+                                                ...prev,
+                                                [point.id]: { ...(prev[point.id] || { en: '', zh: '' }), en: newContent }
+                                              }));
+                                            }
+                                          }}
+                                          className="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors"
+                                          disabled={isCurrentTabLocked}
+                                        >
+                                          ✏️ 編輯
+                                        </button>
+                                        </div>
+                                      </div>
+                                      <div className="text-slate-300 text-sm leading-relaxed whitespace-pre-wrap">
+                                        {sectionHumanized.en || sectionHumanized.zh || ''}
+                                      </div>
                                     </div>
-                                  </div>
-                                  <div className="text-slate-300 text-sm leading-relaxed whitespace-pre-wrap">
-                                    {form.language === '英文' ? sectionHumanized.en : sectionHumanized.zh}
-                                  </div>
-                                </div>
+                                  )}
+                                  {/* 📄 人性化 (中文) - 僅當內容語言=中文時顯示 */}
+                                  {form.language === '中文' && (sectionHumanized.zh || sectionHumanized.en) && (
+                                    <div className="p-3 bg-slate-800 rounded border border-slate-500">
+                                      <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                                        <h5 className="text-sm font-medium text-emerald-300">
+                                          📄 人性化 (中文)
+                                          <span className="text-xs text-slate-400 ml-2">
+                                            ({countText(sectionHumanized.zh || sectionHumanized.en || '', true)} 字)
+                                          </span>
+                                        </h5>
+                                        <div className="flex gap-2 items-center">
+                                          <button
+                                            onClick={() => handleAiCheck(point.id)}
+                                            disabled={isCheckingAI === point.id}
+                                            className="px-2 py-1 bg-violet-600 text-white text-xs rounded hover:bg-violet-500 transition-colors disabled:opacity-50"
+                                          >
+                                            {isCheckingAI === point.id ? '🔄' : '🧪 AI'}
+                                          </button>
+                                          {aiCheckResults[point.id] != null && (
+                                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                              aiCheckResults[point.id] <= 30 ? 'bg-emerald-600/80' :
+                                              aiCheckResults[point.id] <= 60 ? 'bg-amber-600/80' :
+                                              'bg-red-600/80'
+                                            } text-white`}>
+                                              AI: {aiCheckResults[point.id]}%
+                                            </span>
+                                          )}
+                                          <button
+                                          onClick={() => {
+                                            const currentContent = sectionHumanized.zh || sectionHumanized.en || '';
+                                            const newContent = prompt('編輯人性化內容 (中文):', currentContent);
+                                            if (newContent !== null) {
+                                              setHumanizedSections(prev => ({
+                                                ...prev,
+                                                [point.id]: { ...(prev[point.id] || { en: '', zh: '' }), zh: newContent }
+                                              }));
+                                            }
+                                          }}
+                                          className="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors"
+                                          disabled={isCurrentTabLocked}
+                                        >
+                                          ✏️ 編輯
+                                        </button>
+                                        </div>
+                                      </div>
+                                      <div className="text-slate-300 text-sm leading-relaxed whitespace-pre-wrap">
+                                        {sectionHumanized.zh || sectionHumanized.en || ''}
+                                      </div>
+                                    </div>
+                                  )}
+                                </>
                               ) : (sectionRevision || (typeof sectionDraft === 'string' ? sectionDraft : null)) ? (
                                 <div className="p-3 bg-slate-800 rounded border border-slate-500">
                                   <p className="text-slate-400 text-sm">點擊上方按鈕對此段落進行人性化處理</p>
@@ -7116,8 +7293,8 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                         })}
                       </div>
                       
-                      {/* 完整人性化文章显示区域 - 英文版 */}
-                      {Object.keys(humanizedSections).length > 0 && (
+                      {/* 完整人性化文章显示区域 - 英文版（僅當內容語言=英文時顯示） */}
+                      {Object.keys(humanizedSections).length > 0 && form.language === '英文' && (
                         <div className="mt-6 p-4 bg-slate-700 rounded-lg border border-slate-600">
                           <div className="flex items-center justify-between mb-3">
                             <h3 className="text-lg font-semibold text-white">✍️ 完整人性化 (English)</h3>
@@ -7159,7 +7336,7 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                       {Object.keys(humanizedSections).length > 0 && (
                         <div className="mt-6 p-4 bg-slate-700 rounded-lg border border-slate-600">
                           <div className="flex items-center justify-between mb-3">
-                            <h3 className="text-lg font-semibold text-white">✍️ 完整人性化 (中文)</h3>
+                            <h3 className="text-lg font-semibold text-white">📄 完整人性化 (中文)</h3>
                           </div>
                           <textarea
                             id="humanized-zh-scroll"
