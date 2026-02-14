@@ -1311,12 +1311,13 @@ ${enhancedKeyword}的发展方向和潜在突破`;
             }
 
             if (cleanedDraftEn && cleanedDraftEn.trim().length >= 10) {
-              // ✅ 存储中英文版本
+              // ✅ 存储中英文版本；zh 僅在含中文字時使用，避免中文區顯示英文
+              const validZh = cleanedDraftZh && /[\u4e00-\u9fff]/.test(cleanedDraftZh);
               setDraftSections(prev => ({
                 ...prev,
                 [point.id]: {
                   en: postProcessDraftContent(cleanedDraftEn, point.id),
-                  zh: cleanedDraftZh ? postProcessDraftContent(cleanedDraftZh, point.id) : postProcessDraftContent(cleanedDraftEn, point.id),
+                  zh: validZh ? postProcessDraftContent(cleanedDraftZh, point.id) : '',
                 }
               }));
               successCount++;
@@ -1581,7 +1582,7 @@ ${sectionReferenceText}
       if (type === 'full') {
         setGeneratedContent(cleanedDraft);
         const cleanedDraftZh = (data.draftZh || '').trim();
-        if (cleanedDraftZh) {
+        if (cleanedDraftZh && /[\u4e00-\u9fff]/.test(cleanedDraftZh)) {
           setGeneratedContentZh(cleanedDraftZh);
         } else if (cleanedDraft.length > 50) {
           // ✅ 自動翻譯成中文：API 未回傳時，前端自動呼叫翻譯
@@ -1592,8 +1593,10 @@ ${sectionReferenceText}
               body: JSON.stringify({ text: cleanedDraft, targetLang: 'zh' }),
             });
             const transData = await transRes.json();
-            if (transRes.ok && transData.translated) {
-              setGeneratedContentZh(transData.translated.trim());
+            const translated = (transData.translated || '').trim();
+            // 僅在翻譯結果含中文字時才設定，避免 translate API fallback 回傳英文
+            if (transRes.ok && translated && /[\u4e00-\u9fff]/.test(translated)) {
+              setGeneratedContentZh(translated);
             }
           } catch (e) {
             console.error('[draft] 自動翻譯失敗:', e);
@@ -1666,7 +1669,7 @@ ${sectionReferenceText}
         }
         
         let newDraftSections: Record<number, string | { en: string; zh: string }> = {};
-        if (cleanedDraftZh) {
+        if (cleanedDraftZh && /[\u4e00-\u9fff]/.test(cleanedDraftZh)) {
           const newDraftSectionsZh: Record<number, string> = {};
           const zhBoundaries: { index: number; sectionId: number }[] = [];
           sectionPatterns.forEach(({ point, patterns }) => {
@@ -1699,8 +1702,9 @@ ${sectionReferenceText}
           outlinePoints.forEach(point => {
             const en = newDraftSectionsEn[point.id];
             const zh = newDraftSectionsZh[point.id];
-            if (en || zh) {
-              newDraftSections[point.id] = { en: en || zh || '', zh: zh || en || '' };
+            const validZh = (zh && /[\u4e00-\u9fff]/.test(zh)) ? zh : '';
+            if (en || validZh) {
+              newDraftSections[point.id] = { en: en || '', zh: validZh };
             }
           });
         } else {
@@ -1743,12 +1747,13 @@ ${sectionReferenceText}
           throw new Error('AI 未返回有效內容。請檢查 AI 模型是否可用，或嘗試更換其他模型。');
         }
         
-        // ✅ 存储中英文版本
+        // ✅ 存储中英文版本；zh 僅在含中文字時使用，避免中文區顯示英文
+        const validZh = cleanedDraftZh && /[\u4e00-\u9fff]/.test(cleanedDraftZh);
         setDraftSections(prev => ({
           ...prev,
           [sectionId]: {
             en: postProcessDraftContent(cleanedDraftEn, sectionId),
-            zh: cleanedDraftZh ? postProcessDraftContent(cleanedDraftZh, sectionId) : postProcessDraftContent(cleanedDraftEn, sectionId),
+            zh: validZh ? postProcessDraftContent(cleanedDraftZh, sectionId) : '',
           }
         }));
         alert(`✅ 第${sectionId}段生成成功！`);
@@ -2219,13 +2224,14 @@ Output only the bullet point content, without any labels or numbering.`
         // ✅ 优先生成英文评论
         const outputLanguage = 'en';
         
+        const sectionTextStr = typeof sectionText === 'string' ? sectionText : (sectionText?.en || sectionText?.zh || '');
         const response = await fetch('/api/feedback', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            text: sectionText,
+            text: sectionTextStr,
             mode: selectedModel,
             analysisType: 'general',
             language: outputLanguage,
@@ -2276,6 +2282,7 @@ Output only the bullet point content, without any labels or numbering.`
           setCurrentGeneratingReviewSection(sectionId);
           
           const sectionText = draftSections[sectionId];
+          const sectionTextStr = typeof sectionText === 'string' ? sectionText : (sectionText?.en || sectionText?.zh || '');
           // ✅ 优先生成英文评论
           const outputLanguage = 'en';
           
@@ -2285,7 +2292,7 @@ Output only the bullet point content, without any labels or numbering.`
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              text: sectionText,
+              text: sectionTextStr,
               mode: selectedModel,
               analysisType: 'general',
               language: outputLanguage,
@@ -2351,13 +2358,14 @@ Output only the bullet point content, without any labels or numbering.`
         if (!response.ok) throw new Error('翻譯失敗');
 
         const data = await response.json();
-        const translated = data.translated || reviewEn;
+        const translated = (data.translated || '').trim();
+        const validZh = translated && /[\u4e00-\u9fff]/.test(translated);
         setReviewSections(prev => {
           const existing = prev[sectionId];
           const prevObj = typeof existing === 'string' ? { en: existing, zh: '' } : (existing || { en: '', zh: '' });
-          return { ...prev, [sectionId]: { ...prevObj, zh: translated } };
+          return { ...prev, [sectionId]: { ...prevObj, zh: validZh ? translated : '' } };
         });
-        alert('✅ 翻譯完成！');
+        alert(validZh ? '✅ 翻譯完成！' : '翻譯未返回有效中文，請稍後再試');
       } else {
         const sectionsToTranslate = Object.keys(reviewSections).map(Number);
         if (sectionsToTranslate.length === 0) {
@@ -2377,11 +2385,12 @@ Output only the bullet point content, without any labels or numbering.`
 
           if (response.ok) {
             const data = await response.json();
-            const translated = data.translated || reviewEn;
+            const translated = (data.translated || '').trim();
+            const validZh = translated && /[\u4e00-\u9fff]/.test(translated);
             setReviewSections(prev => {
               const existing = prev[sid];
               const prevObj = typeof existing === 'string' ? { en: existing, zh: '' } : (existing || { en: '', zh: '' });
-              return { ...prev, [sid]: { ...prevObj, zh: translated } };
+              return { ...prev, [sid]: { ...prevObj, zh: validZh ? translated : '' } };
             });
           }
           await new Promise(resolve => setTimeout(resolve, 300));
@@ -2874,8 +2883,9 @@ Output only the bullet point content, without any labels or numbering.`
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '翻譯失敗');
-      const translated = data.translated || '';
-      if (translated) setGeneratedContentZh(translated);
+      const translated = (data.translated || '').trim();
+      if (translated && /[\u4e00-\u9fff]/.test(translated)) setGeneratedContentZh(translated);
+      else if (translated) alert('翻譯未返回有效中文，請稍後再試');
     } catch (err: any) {
       console.error('翻譯完整初稿失敗:', err);
       alert(err?.message || '翻譯失敗，請稍後再試');
@@ -4418,10 +4428,11 @@ ${ref.year ? `年份：${ref.year}` : ''}
     return generatedContent?.trim() || '';
   }, [outlinePoints, draftSections, generatedContent]);
 
-  // ✅ 完整初稿中文版（從 draftSections 的 zh 或 generatedContentZh 取得）
+  // ✅ 完整初稿中文版（從 draftSections 的 zh 或 generatedContentZh 取得；僅顯示含中文字內容）
   const fullDraftTextZh = useMemo(() => {
+    const validGeneratedZh = generatedContentZh?.trim() && /[\u4e00-\u9fff]/.test(generatedContentZh);
     if (outlinePoints.length === 0) {
-      return generatedContentZh?.trim() || '';
+      return validGeneratedZh ? generatedContentZh!.trim() : '';
     }
 
     const sections: string[] = [];
@@ -4429,7 +4440,8 @@ ${ref.year ? `年份：${ref.year}` : ''}
 
     outlinePoints.forEach(point => {
       const sectionValue = draftSections[point.id];
-      const sectionContent = (typeof sectionValue === 'string' ? '' : (sectionValue?.zh || '')).trim();
+      const rawZh = typeof sectionValue === 'string' ? '' : (sectionValue?.zh || '');
+      const sectionContent = (rawZh && /[\u4e00-\u9fff]/.test(rawZh) ? rawZh : '').trim();
       if (sectionContent) hasSectionContent = true;
       const header = `${point.id}. ${point.title}${
         point.wordCount ? ` (≈ ${point.wordCount} 字)` : ''
@@ -4441,7 +4453,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
       return sections.join('\n\n');
     }
 
-    return generatedContentZh?.trim() || '';
+    return validGeneratedZh ? generatedContentZh!.trim() : '';
   }, [outlinePoints, draftSections, generatedContentZh]);
 
   return (

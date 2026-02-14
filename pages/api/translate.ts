@@ -54,8 +54,11 @@ export default async function handler(
       }
     );
 
+    // 若翻譯為中文但結果無中文字，不 fallback 到原文（避免中文區顯示英文）
+    const result = (translated || '').trim();
+    const validZh = targetLang !== 'zh' || /[\u4e00-\u9fff]/.test(result);
     return res.status(200).json({
-      translated: translated || text, // fallback to original if translation fails
+      translated: validZh ? (result || text) : '',
     });
   } catch (err: any) {
     console.error('[translate]', { err: err?.message });
