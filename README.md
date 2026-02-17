@@ -16,4 +16,8 @@
 - Vercel 雲端部署
 - Tailwind CSS 界面設計
 
+## 環境變數（可選）
+
+- `UNDETECTABLE_AI_API_KEY`：設定後，人性化將使用 [Undetectable.AI](https://undetectable.ai/develop) 官方 Humanizer API（效果通常優於內建 LLM）。取得 API Key：https://undetectable.ai/develop
+
 ## 啟動專案

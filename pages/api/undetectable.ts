@@ -1,5 +1,5 @@
 // API: undetectable conversion (人性化處理)
-// ✅ /pages/api/undetectable.ts
+// ✅ 支援 Undetectable.AI 官方 API（設定 UNDETECTABLE_AI_API_KEY）或內建 LLM
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { callLLM, mapMode } from '@/lib/ai';
 import { deductCredits } from '@/lib/credits';
@@ -9,6 +9,48 @@ type ResBody = { result?: string; humanized?: string; resultZh?: string; humaniz
 
 function detectLang(text: string): 'zh' | 'en' {
   return /[\u4e00-\u9fff]/.test(text) ? 'zh' : 'en';
+}
+
+/** 使用 Undetectable.AI 官方 Humanizer API */
+async function humanizeViaUndetectableAI(
+  content: string,
+  apiKey: string,
+  lang: 'zh' | 'en'
+): Promise<string> {
+  const submitRes = await fetch('https://humanize.undetectable.ai/submit', {
+    method: 'POST',
+    headers: {
+      'apikey': apiKey,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      content: content.slice(0, 50000),
+      readability: 'University',
+      purpose: 'Essay',
+      strength: 'More Human',
+      model: lang === 'en' ? 'v11' : 'v2', // v11 best for English, v2 supports all languages
+    }),
+  });
+  const submitData = await submitRes.json();
+  if (!submitRes.ok) {
+    const err = submitData?.error || submitData?.message || submitRes.statusText;
+    throw new Error(err === 'Insufficient credits' ? 'Undetectable.AI 餘額不足' : String(err));
+  }
+  const docId = submitData?.id;
+  if (!docId) throw new Error('Undetectable.AI 未回傳 document id');
+
+  for (let i = 0; i < 20; i++) {
+    await new Promise((r) => setTimeout(r, 5000));
+    const docRes = await fetch('https://humanize.undetectable.ai/document', {
+      method: 'POST',
+      headers: { 'apikey': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: docId }),
+    });
+    const docData = await docRes.json();
+    const output = docData?.output?.trim();
+    if (output) return output;
+  }
+  throw new Error('Undetectable.AI 處理逾時');
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<ResBody>) {
@@ -36,7 +78,41 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const lang: 'zh' | 'en' =
     language === 'zh' || language === 'en' ? language : detectLang(text);
 
-  // 构建人性化处理的系统提示
+  const udApiKey = process.env.UNDETECTABLE_AI_API_KEY?.trim();
+
+  // ✅ 若已設定 Undetectable.AI API Key，優先使用官方 API
+  if (udApiKey) {
+    try {
+      const result = await humanizeViaUndetectableAI(text.trim(), udApiKey, lang);
+      let resultZh: string | undefined;
+      if (generateBoth && lang === 'en' && result) {
+        try {
+          const base = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+          const tr = await fetch(`${base}/api/translate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: result, targetLang: 'zh' }),
+          });
+          const trData = await tr.json();
+          if (tr.ok && trData?.translated?.trim()) resultZh = trData.translated;
+        } catch (_) {}
+      }
+      return res.status(200).json({
+        result,
+        humanized: result,
+        resultZh: resultZh,
+        humanizedZh: resultZh,
+        remainingCredits: deduct.remainingCredits,
+      });
+    } catch (err: any) {
+      console.error('[undetectable] Undetectable.AI API failed:', err?.message);
+      return res.status(500).json({
+        error: err?.message || (lang === 'zh' ? '人性化失敗' : 'Humanization failed'),
+      });
+    }
+  }
+
+  // 构建人性化处理的系统提示（內建 LLM fallback）
   const systemHumanizeZH = `你是一位專業的文本人性化處理專家。
 
 請對提供的文本進行優化，使其更難被 AI 偵測工具識別，同時保持：

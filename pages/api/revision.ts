@@ -183,8 +183,8 @@ Output format:
   // ✅ 結論段落特別強調：必須達到目標字數，不可簡短帶過
   const conclusionEmphasis = actualSectionType === 'conclusion' && targetWordCount
     ? (lang === 'zh'
-      ? `\n\n【結論段落特別要求】此為結論段落，目標約${targetWordCount}字。禁止寫成簡短摘要！必須包含：1) 總結各段要點 2) 重申論文主旨 3) 提出啟示或未來方向。字數不足${Math.floor(targetWordCount * 0.8)}字即不合格。`
-      : `\n\n【CONCLUSION CRITICAL】This is the conclusion. Target: ~${targetWordCount} words. Do NOT write a brief 2-3 sentence summary! You MUST include: 1) Summary of key points from each section 2) Restatement of thesis 3) Implications or future directions. Output under ${Math.floor(targetWordCount * 0.8)} words is UNACCEPTABLE.`)
+      ? `\n\n【結論段落特別要求】此為結論段落，目標約${targetWordCount}字。禁止寫成簡短摘要！必須包含：1) 總結各段要點 2) 重申論文主旨 3) 提出啟示或未來方向。字數不足${Math.floor(targetWordCount * 0.8)}字即不合格。請務必寫滿約${targetWordCount}字。`
+      : `\n\n【CONCLUSION CRITICAL】This is the conclusion. Target: EXACTLY ~${targetWordCount} words (minimum ${Math.floor(targetWordCount * 0.9)}). Do NOT write a brief 2-3 sentence summary! You MUST: 1) Summarize key points from EACH body paragraph 2) Restate thesis 3) Add implications or future directions. Write 4-6 substantial sentences. Output under ${Math.floor(targetWordCount * 0.8)} words is UNACCEPTABLE.`)
     : '';
   
   const userPrompt = lang === 'zh' 
@@ -209,7 +209,7 @@ Output format:
       console.log(`[revision] Target word count: ${targetWordCount}, Estimated tokens: ${estimatedTokens}, Setting maxTokens: ${maxTokens}`);
     }
 
-    const revision = await callLLM(
+    let revision = await callLLM(
       [
         { role: 'system', content: system },
         { role: 'user', content: userPrompt },
@@ -220,6 +220,26 @@ Output format:
         referer: process.env.OPENROUTER_REFERER ?? process.env.NEXT_PUBLIC_APP_URL,
       }
     );
+
+    // ✅ 結論段落若過短，重試一次並強制要求擴充
+    if (actualSectionType === 'conclusion' && targetWordCount && revision) {
+      const wc = revision.trim().split(/\s+/).filter(Boolean).length;
+      if (wc < Math.floor(targetWordCount * 0.8)) {
+        const expandPrompt = lang === 'zh'
+          ? `以下結論僅${wc}字，不足${targetWordCount}字。請擴充至約${targetWordCount}字，保持單一段落，加入更多細節與論述：\n\n${revision}`
+          : `This conclusion has only ${wc} words, below the ${targetWordCount} target. Expand to ~${targetWordCount} words, keep ONE paragraph, add more detail and elaboration:\n\n${revision}`;
+        const expanded = await callLLM(
+          [
+            { role: 'system', content: lang === 'zh' ? '你是學術寫作專家。請擴充段落至目標字數，保持學術語氣。' : 'You are an academic writing expert. Expand the paragraph to target word count, maintain academic tone.' },
+            { role: 'user', content: expandPrompt },
+          ],
+          { ...llmOpts, maxTokens: 600 }
+        );
+        if (expanded && expanded.trim().split(/\s+/).filter(Boolean).length > wc) {
+          revision = expanded;
+        }
+      }
+    }
 
     let revisionZh: string | undefined;
     let revisionEn: string | undefined;

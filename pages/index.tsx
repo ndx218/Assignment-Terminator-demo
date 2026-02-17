@@ -2490,10 +2490,10 @@ Output only the bullet point content, without any labels or numbering.`
           revisionEn = extractSingleSection(revisionEn, sectionId, outlinePoints) || revisionEn;
           revisionZh = extractSingleSection(revisionZh, sectionId, outlinePoints) || revisionZh;
           
-          // ✅ 結論段落若過短或為空，重試一次
+          // ✅ 結論段落若過短（未達目標 80%），重試
           const isConclusion = sectionType === 'conclusion';
           const wordCount = (revisionEn || '').split(/\s+/).filter(Boolean).length;
-          const minExpected = Math.floor((targetWordCount || 140) * 0.3);
+          const minExpected = Math.floor((targetWordCount || 140) * 0.8);
           if (isConclusion && (wordCount < minExpected || !revisionEn?.trim()) && targetWordCount) {
             await new Promise((r) => setTimeout(r, 800));
             try {
@@ -2631,10 +2631,10 @@ Output only the bullet point content, without any labels or numbering.`
           revisionEn = extractSingleSection(revisionEn, sectionId, outlinePoints) || revisionEn;
           revisionZh = extractSingleSection(revisionZh, sectionId, outlinePoints) || revisionZh;
           
-          // ✅ 結論段落若過短或為空，重試一次（目標約 140 字）
+          // ✅ 結論段落若過短（未達目標 80%），重試（目標約 140 字）
           const isConclusion = sectionType === 'conclusion';
           const wordCount = (revisionEn || '').split(/\s+/).filter(Boolean).length;
-          const minExpected = Math.floor((targetWordCount || 140) * 0.3);
+          const minExpected = Math.floor((targetWordCount || 140) * 0.8);
           if (isConclusion && (wordCount < minExpected || !revisionEn?.trim()) && targetWordCount) {
             await new Promise((r) => setTimeout(r, 800));
             try {
