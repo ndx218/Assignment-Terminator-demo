@@ -5,7 +5,7 @@ import { callLLM, mapMode } from '@/lib/ai';
 import { deductCredits } from '@/lib/credits';
 import { prisma } from '@/lib/prisma';
 
-type ResBody = { result?: string; humanized?: string; resultZh?: string; humanizedZh?: string; remainingCredits?: number; error?: string };
+type ResBody = { result?: string; humanized?: string; resultZh?: string; humanizedZh?: string; remainingCredits?: number; error?: string; engine?: 'undetectable' | 'llm' };
 
 function detectLang(text: string): 'zh' | 'en' {
   return /[\u4e00-\u9fff]/.test(text) ? 'zh' : 'en';
@@ -56,6 +56,15 @@ async function humanizeViaUndetectableAI(
 export default async function handler(req: NextApiRequest, res: NextApiResponse<ResBody>) {
   res.setHeader('Content-Type', 'application/json');
 
+  // ✅ GET: 回傳可用的人性化引擎
+  if (req.method === 'GET') {
+    const udApiKey = process.env.UNDETECTABLE_AI_API_KEY?.trim();
+    return res.status(200).json({
+      hasUndetectable: !!udApiKey,
+      engines: udApiKey ? ['undetectable', 'llm'] : ['llm'],
+    });
+  }
+
   if (req.method !== 'POST') {
     return res.status(405).json({ error: '只接受 POST 請求' });
   }
@@ -69,6 +78,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     language,
     generateBoth = false, // ✅ 是否同时生成中英文版本
     wordCount, // ✅ 目標字數（人性化時勿縮短）
+    humanizeEngine = 'auto', // ✅ 'undetectable' | 'llm' | 'auto'：由前端選擇
   } = (req.body ?? {}) as Record<string, any>;
 
   if (!text || typeof text !== 'string' || !text.trim()) {
@@ -79,9 +89,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     language === 'zh' || language === 'en' ? language : detectLang(text);
 
   const udApiKey = process.env.UNDETECTABLE_AI_API_KEY?.trim();
+  const useUndetectable = humanizeEngine === 'undetectable'
+    ? !!udApiKey
+    : humanizeEngine === 'llm'
+      ? false
+      : !!udApiKey; // auto: 有 key 就用
 
-  // ✅ 若已設定 Undetectable.AI API Key，優先使用官方 API
-  if (udApiKey) {
+  if (humanizeEngine === 'undetectable' && !udApiKey) {
+    return res.status(400).json({ error: 'Undetectable.AI 未設定（需設定 UNDETECTABLE_AI_API_KEY）' });
+  }
+
+  // ✅ 若選擇使用 Undetectable.AI 且已設定 API Key
+  if (useUndetectable && udApiKey) {
     try {
       const result = await humanizeViaUndetectableAI(text.trim(), udApiKey, lang);
       let resultZh: string | undefined;
@@ -103,6 +122,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         resultZh: resultZh,
         humanizedZh: resultZh,
         remainingCredits: deduct.remainingCredits,
+        engine: 'undetectable',
       });
     } catch (err: any) {
       console.error('[undetectable] Undetectable.AI API failed:', err?.message);
@@ -232,6 +252,7 @@ Directly output the optimized text without any additional explanations, markers,
       resultZh: resultZh,
       humanizedZh: resultZh,
       remainingCredits: deduct.remainingCredits,
+      engine: 'llm',
     });
   } catch (err: any) {
     const msg = String(err?.message ?? '');
@@ -258,6 +279,7 @@ Directly output the optimized text without any additional explanations, markers,
           result: result2,
           humanized: result2,
           remainingCredits: deduct.remainingCredits,
+          engine: 'llm',
         });
       } catch (e: any) {
         console.error('[undetectable fallback failed]', e?.message);

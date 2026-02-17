@@ -158,6 +158,8 @@ export default function HomePage() {
   const [aiCheckFullResult, setAiCheckFullResult] = useState<number | null>(null); // ✅ 完整人性化 AI 檢測
   const [aiCheckSource, setAiCheckSource] = useState<'gptzero' | 'llm' | null>(null); // ✅ 檢測來源
   const [isCheckingAI, setIsCheckingAI] = useState<number | 'full' | null>(null); // ✅ 正在檢測的段落或 'full'
+  const [humanizeEngine, setHumanizeEngine] = useState<'auto' | 'undetectable' | 'llm'>('auto'); // ✅ 人性化引擎選擇
+  const [hasUndetectable, setHasUndetectable] = useState<boolean | null>(null); // ✅ Undetectable.AI 是否可用
   const [regeneratingBullet, setRegeneratingBullet] = useState<{pointId: number, bulletIndex: number, category: 'Hook' | 'Background' | 'Thesis'} | null>(null);
   
   const [outlinePoints, setOutlinePoints] = useState<OutlinePoint[]>([]);
@@ -2737,6 +2739,7 @@ Output only the bullet point content, without any labels or numbering.`
               language: form.language === '中文' ? 'zh' : 'en',
               generateBoth: true,
               wordCount: targetWordCount, // ✅ 避免人性化時縮短（尤其結論）
+              humanizeEngine, // ✅ 人性化引擎：auto | undetectable | llm
             }),
         });
 
@@ -2850,6 +2853,7 @@ Output only the bullet point content, without any labels or numbering.`
               language: currentLang,
               generateBoth: true,
               wordCount: targetWordCount, // ✅ 避免人性化時縮短（尤其結論）
+              humanizeEngine, // ✅ 人性化引擎：auto | undetectable | llm
             }),
           });
 
@@ -4115,6 +4119,14 @@ ${ref.year ? `年份：${ref.year}` : ''}
   // 加载数据
   useEffect(() => {
     loadFromLocalStorage();
+  }, []);
+
+  // ✅ 取得人性化引擎可用狀態（Undetectable.AI 是否已設定）
+  useEffect(() => {
+    fetch('/api/undetectable')
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d?.hasUndetectable != null) setHasUndetectable(d.hasUndetectable); })
+      .catch(() => {});
   }, []);
 
   // 保存数据
@@ -7428,7 +7440,59 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                           </div>
                         </div>
                         
-                        <p className="text-xs text-slate-400">
+                        {/* ✅ 人性化引擎選擇 */}
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <span className="text-xs text-slate-400">{isUI_EN ? 'Engine:' : '引擎：'}</span>
+                          <div className="flex gap-1">
+                            <button
+                              onClick={() => setHumanizeEngine('auto')}
+                              className={`px-2 py-1 text-xs rounded transition-colors ${
+                                humanizeEngine === 'auto'
+                                  ? 'bg-emerald-600 text-white'
+                                  : 'bg-slate-600 text-slate-300 hover:bg-slate-500'
+                              }`}
+                              title={isUI_EN ? 'Auto: Undetectable.AI if configured, else LLM' : '自動：有設定 Undetectable.AI 則用，否則用 LLM'}
+                            >
+                              {isUI_EN ? 'Auto' : '自動'}
+                            </button>
+                            <button
+                              onClick={() => setHumanizeEngine('undetectable')}
+                              disabled={!hasUndetectable}
+                              className={`px-2 py-1 text-xs rounded transition-colors ${
+                                humanizeEngine === 'undetectable'
+                                  ? 'bg-emerald-600 text-white'
+                                  : hasUndetectable
+                                    ? 'bg-slate-600 text-slate-300 hover:bg-slate-500'
+                                    : 'bg-slate-700 text-slate-500 cursor-not-allowed'
+                              }`}
+                              title={hasUndetectable ? 'Undetectable.AI 官方 API' : (isUI_EN ? 'Undetectable.AI not configured' : 'Undetectable.AI 未設定')}
+                            >
+                              Undetectable.AI
+                            </button>
+                            <button
+                              onClick={() => setHumanizeEngine('llm')}
+                              className={`px-2 py-1 text-xs rounded transition-colors ${
+                                humanizeEngine === 'llm'
+                                  ? 'bg-emerald-600 text-white'
+                                  : 'bg-slate-600 text-slate-300 hover:bg-slate-500'
+                              }`}
+                              title="LLM 人性化"
+                            >
+                              LLM
+                            </button>
+                          </div>
+                          <span className="text-xs text-slate-500">
+                            {humanizeEngine === 'auto'
+                              ? (hasUndetectable ? `(${isUI_EN ? 'Using' : '使用'} Undetectable.AI)` : hasUndetectable === false ? `(${isUI_EN ? 'Using' : '使用'} LLM)` : '')
+                              : humanizeEngine === 'undetectable'
+                                ? `(${isUI_EN ? 'Using' : '使用'} Undetectable.AI)`
+                                : humanizeEngine === 'llm'
+                                  ? `(${isUI_EN ? 'Using' : '使用'} LLM)`
+                                  : ''}
+                          </span>
+                        </div>
+                        
+                        <p className="text-xs text-slate-400 mt-2">
                           💡 提示：人性化處理將使文本更難被 AI 偵測。一鍵人性化後會自動檢測，AI%{'>'}20% 的段落會自動識別問題句、儲存至資料庫並重試直到通過。亦可手動點「🧪 AI 檢測」後，點「🔄 自動重新人性化」或「📥 保存到 AI 資料庫」。
                         </p>
                       </div>

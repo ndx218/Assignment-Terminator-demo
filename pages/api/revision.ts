@@ -134,9 +134,13 @@ Output format:
   const system = lang === 'zh' ? systemRevisionZH : systemRevisionEN;
 
   // 检测是否为整篇文章（包含多个段落）
-  const isFullArticle = typeof sectionId === 'string' && sectionId.toLowerCase() === 'all' ||
-                        (typeof sectionId === 'undefined' || sectionId === null) ||
-                        /(?:1\.|2\.|3\.|4\.|5\.|引言|主體|結論|Introduction|Body|Conclusion)/i.test(draftText);
+  // ✅ 若明確傳入 sectionId（數字或可解析為數字的字串），一律視為單段修訂，不因 draftText 含 "Conclusion" 等字而誤判
+  const hasExplicitSectionId = sectionId != null && sectionId !== '' && !isNaN(Number(sectionId)) && String(sectionId).toLowerCase() !== 'all';
+  const isFullArticle = !hasExplicitSectionId && (
+    (typeof sectionId === 'string' && sectionId.toLowerCase() === 'all') ||
+    (typeof sectionId === 'undefined' || sectionId === null) ||
+    /(?:1\.|2\.|3\.|4\.|5\.|引言|主體|結論|Introduction|Body|Conclusion)/i.test(draftText)
+  );
 
   // ✅ 确定段落类型（用于添加适当的连接词）
   const actualSectionType = sectionType || (
