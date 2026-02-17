@@ -10,6 +10,7 @@ import {
   type AcademicDatabase
 } from '../lib/academicDatabases';
 import { syncCreditsFromResponse } from '../lib/syncCredits';
+import { extractSingleSection } from '../lib/utils';
 
 // 定義類型接口
 const formatFileSize = (size?: number | null): string => {
@@ -2478,21 +2479,22 @@ Output only the bullet point content, without any labels or numbering.`
           
           if (data.revision) {
             if (typeof data.revision === 'string') {
-              // 旧格式：单一字符串
               revisionEn = data.revision;
               revisionZh = data.revisionZh || data.revision;
             } else if (typeof data.revision === 'object') {
-              // 新格式：{en: string, zh: string}
               revisionEn = data.revision.en || '';
               revisionZh = data.revision.zh || '';
             }
           }
+          // ✅ 若 LLM 回傳整篇文章，僅擷取此段內容
+          revisionEn = extractSingleSection(revisionEn, sectionId, outlinePoints) || revisionEn;
+          revisionZh = extractSingleSection(revisionZh, sectionId, outlinePoints) || revisionZh;
           
           setRevisionSections(prev => ({
             ...prev,
             [sectionId]: {
               en: revisionEn || '',
-              zh: revisionZh || revisionEn || '', // 如果中文生成失败，使用英文版本
+              zh: revisionZh || revisionEn || '',
             }
           }));
         alert(`✅ 第${sectionId}段修訂稿生成成功！`);
@@ -2583,21 +2585,22 @@ Output only the bullet point content, without any labels or numbering.`
           
           if (data.revision) {
             if (typeof data.revision === 'string') {
-              // 旧格式：单一字符串
               revisionEn = data.revision;
               revisionZh = data.revisionZh || data.revision;
             } else if (typeof data.revision === 'object') {
-              // 新格式：{en: string, zh: string}
               revisionEn = data.revision.en || '';
               revisionZh = data.revision.zh || '';
             }
           }
+          // ✅ 若 LLM 回傳整篇文章，僅擷取此段內容
+          revisionEn = extractSingleSection(revisionEn, sectionId, outlinePoints) || revisionEn;
+          revisionZh = extractSingleSection(revisionZh, sectionId, outlinePoints) || revisionZh;
           
           setRevisionSections(prev => ({
             ...prev,
             [sectionId]: {
               en: revisionEn || '',
-              zh: revisionZh || revisionEn || '', // 如果中文生成失败，使用英文版本
+              zh: revisionZh || revisionEn || '',
             }
           }));
           
@@ -2686,12 +2689,15 @@ Output only the bullet point content, without any labels or numbering.`
           humanizedEn = data.humanized || '';
           humanizedZh = data.humanizedZh || '';
         }
+        // ✅ 若 LLM 回傳整篇文章，僅擷取此段內容
+        humanizedEn = extractSingleSection(humanizedEn, sectionId, outlinePoints) || humanizedEn;
+        humanizedZh = extractSingleSection(humanizedZh, sectionId, outlinePoints) || humanizedZh;
         
         setHumanizedSections(prev => ({
           ...prev,
           [sectionId]: {
             en: humanizedEn || '',
-            zh: humanizedZh || humanizedEn || '', // 如果中文生成失败，使用英文版本
+            zh: humanizedZh || humanizedEn || '',
           }
         }));
         alert(`✅ 第${sectionId}段人性化完成！`);
@@ -2794,12 +2800,15 @@ Output only the bullet point content, without any labels or numbering.`
             humanizedEn = data.humanized || '';
             humanizedZh = data.humanizedZh || '';
           }
+          // ✅ 若 LLM 回傳整篇文章，僅擷取此段內容
+          humanizedEn = extractSingleSection(humanizedEn, sectionId, outlinePoints) || humanizedEn;
+          humanizedZh = extractSingleSection(humanizedZh, sectionId, outlinePoints) || humanizedZh;
           
           setHumanizedSections(prev => ({
             ...prev,
             [sectionId]: {
               en: humanizedEn || '',
-              zh: humanizedZh || humanizedEn || '', // 如果中文生成失败，使用英文版本
+              zh: humanizedZh || humanizedEn || '',
             }
           }));
           
@@ -7189,11 +7198,14 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                             )}
                             {aiCheckFullResult != null && (
                               <span className={`px-3 py-1 rounded text-sm font-semibold ${
-                                aiCheckFullResult <= 30 ? 'bg-emerald-600/80 text-white' :
+                                aiCheckFullResult <= 20 ? 'bg-emerald-600/80 text-white' :
                                 aiCheckFullResult <= 60 ? 'bg-amber-600/80 text-white' :
                                 'bg-red-600/80 text-white'
                               }`} title={aiCheckSource === 'gptzero' ? 'GPTZero 專業檢測' : 'LLM 估計'}>
                                 {aiCheckSource === 'gptzero' ? 'GPTZero ' : ''}AI: {aiCheckFullResult}%
+                                <span className="ml-1 text-xs opacity-90">
+                                  {aiCheckFullResult <= 20 ? (isUI_EN ? '✓ Pass' : '✓ 通過') : (isUI_EN ? '✗ Not pass' : '✗ 未通過')}
+                                </span>
                               </span>
                             )}
                             <button 
@@ -7207,7 +7219,7 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                         </div>
                         
                         <p className="text-xs text-slate-400">
-                          💡 提示：人性化處理將使文本更難被 AI 偵測。點擊「🧪 AI 檢測」可查看 AI 百分比（內建 LLM 估計，成本為 0）。0%=人類風格，100%=AI 風格。
+                          💡 提示：人性化處理將使文本更難被 AI 偵測。點擊「🧪 AI 檢測」可查看 AI 百分比（內建 LLM 估計，成本為 0）。0%=人類風格，100%=AI 風格。通過標準：≤20%。
                         </p>
                       </div>
 
@@ -7271,11 +7283,11 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                                           </button>
                                           {aiCheckResults[point.id] != null && (
                                             <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                                              aiCheckResults[point.id] <= 30 ? 'bg-emerald-600/80' :
+                                              aiCheckResults[point.id] <= 20 ? 'bg-emerald-600/80' :
                                               aiCheckResults[point.id] <= 60 ? 'bg-amber-600/80' :
                                               'bg-red-600/80'
-                                            } text-white`}>
-                                              AI: {aiCheckResults[point.id]}%
+                                            } text-white`} title={aiCheckResults[point.id]! <= 20 ? (isUI_EN ? 'Pass (≤20%)' : '通過 (≤20%)') : (isUI_EN ? 'Not pass (>20%)' : '未通過 (>20%)')}>
+                                              AI: {aiCheckResults[point.id]}% {aiCheckResults[point.id]! <= 20 ? '✓' : '✗'}
                                             </span>
                                           )}
                                           <button
@@ -7321,11 +7333,11 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                                           </button>
                                           {aiCheckResults[point.id] != null && (
                                             <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                                              aiCheckResults[point.id] <= 30 ? 'bg-emerald-600/80' :
+                                              aiCheckResults[point.id] <= 20 ? 'bg-emerald-600/80' :
                                               aiCheckResults[point.id] <= 60 ? 'bg-amber-600/80' :
                                               'bg-red-600/80'
-                                            } text-white`}>
-                                              AI: {aiCheckResults[point.id]}%
+                                            } text-white`} title={aiCheckResults[point.id]! <= 20 ? (isUI_EN ? 'Pass (≤20%)' : '通過 (≤20%)') : (isUI_EN ? 'Not pass (>20%)' : '未通過 (>20%)')}>
+                                              AI: {aiCheckResults[point.id]}% {aiCheckResults[point.id]! <= 20 ? '✓' : '✗'}
                                             </span>
                                           )}
                                           <button
