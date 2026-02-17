@@ -2490,6 +2490,41 @@ Output only the bullet point content, without any labels or numbering.`
           revisionEn = extractSingleSection(revisionEn, sectionId, outlinePoints) || revisionEn;
           revisionZh = extractSingleSection(revisionZh, sectionId, outlinePoints) || revisionZh;
           
+          // ✅ 結論段落若過短或為空，重試一次
+          const isConclusion = sectionType === 'conclusion';
+          const wordCount = (revisionEn || '').split(/\s+/).filter(Boolean).length;
+          const minExpected = Math.floor((targetWordCount || 140) * 0.3);
+          if (isConclusion && (wordCount < minExpected || !revisionEn?.trim()) && targetWordCount) {
+            await new Promise((r) => setTimeout(r, 800));
+            try {
+              const retryRes = await fetch('/api/revision', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  draftText: actualDraftText,
+                  reviewText: reviewText,
+                  title: form.title,
+                  sectionId,
+                  sectionType: 'conclusion',
+                  wordCount: targetWordCount,
+                  language: lang,
+                  mode: selectedModel,
+                  generateBoth: true,
+                }),
+              });
+              if (retryRes.ok) {
+                const retryData = await retryRes.json();
+                syncCreditsFromResponse(retryData);
+                let reEn = typeof retryData.revision === 'object' ? (retryData.revision.en || '') : (retryData.revision || '');
+                let reZh = typeof retryData.revision === 'object' ? (retryData.revision.zh || '') : (retryData.revisionZh || retryData.revision || '');
+                reEn = extractSingleSection(reEn, sectionId, outlinePoints) || reEn;
+                reZh = extractSingleSection(reZh, sectionId, outlinePoints) || reZh;
+                if (reEn?.trim()) revisionEn = reEn;
+                if (reZh?.trim()) revisionZh = reZh;
+              }
+            } catch (_) {}
+          }
+          
           setRevisionSections(prev => ({
             ...prev,
             [sectionId]: {
@@ -2595,6 +2630,43 @@ Output only the bullet point content, without any labels or numbering.`
           // ✅ 若 LLM 回傳整篇文章，僅擷取此段內容
           revisionEn = extractSingleSection(revisionEn, sectionId, outlinePoints) || revisionEn;
           revisionZh = extractSingleSection(revisionZh, sectionId, outlinePoints) || revisionZh;
+          
+          // ✅ 結論段落若過短或為空，重試一次（目標約 140 字）
+          const isConclusion = sectionType === 'conclusion';
+          const wordCount = (revisionEn || '').split(/\s+/).filter(Boolean).length;
+          const minExpected = Math.floor((targetWordCount || 140) * 0.3);
+          if (isConclusion && (wordCount < minExpected || !revisionEn?.trim()) && targetWordCount) {
+            await new Promise((r) => setTimeout(r, 800));
+            try {
+              const retryRes = await fetch('/api/revision', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  draftText: actualDraftText,
+                  reviewText: reviewText,
+                  title: form.title,
+                  sectionId,
+                  sectionType: 'conclusion',
+                  wordCount: targetWordCount,
+                  language: lang,
+                  mode: selectedModel,
+                  generateBoth: true,
+                }),
+              });
+              if (retryRes.ok) {
+                const retryData = await retryRes.json();
+                syncCreditsFromResponse(retryData);
+                let reEn = typeof retryData.revision === 'object' ? (retryData.revision.en || '') : (retryData.revision || '');
+                let reZh = typeof retryData.revision === 'object' ? (retryData.revision.zh || '') : (retryData.revisionZh || retryData.revision || '');
+                reEn = extractSingleSection(reEn, sectionId, outlinePoints) || reEn;
+                reZh = extractSingleSection(reZh, sectionId, outlinePoints) || reZh;
+                if (reEn?.trim()) revisionEn = reEn;
+                if (reZh?.trim()) revisionZh = reZh;
+              }
+            } catch (_) {
+              // 忽略重試失敗
+            }
+          }
           
           setRevisionSections(prev => ({
             ...prev,
@@ -2730,6 +2802,7 @@ Output only the bullet point content, without any labels or numbering.`
       }
 
       setIsGeneratingHumanized(true);
+      const generatedTexts: Record<number, string> = {};
       
       try {
         // 依次生成每个段落的人性化文本（自动排队）
@@ -2808,6 +2881,9 @@ Output only the bullet point content, without any labels or numbering.`
           humanizedEn = extractSingleSection(humanizedEn, sectionId, outlinePoints) || humanizedEn;
           humanizedZh = extractSingleSection(humanizedZh, sectionId, outlinePoints) || humanizedZh;
           
+          const displayText = (form.language === '英文' ? (humanizedEn || humanizedZh) : (humanizedZh || humanizedEn)) || '';
+          generatedTexts[sectionId] = displayText;
+          
           setHumanizedSections(prev => ({
             ...prev,
             [sectionId]: {
@@ -2820,6 +2896,32 @@ Output only the bullet point content, without any labels or numbering.`
           if (i < sectionsToGenerate.length - 1) {
             await new Promise(resolve => setTimeout(resolve, 500));
           }
+        }
+        
+        // ✅ 自動檢測：AI% > 20% 的段落自動重試直到通過（識別問題句、儲存、重試）
+        await new Promise((r) => setTimeout(r, 1500));
+        const failedSections: number[] = [];
+        for (const sid of sectionsToGenerate) {
+          const textToCheck = generatedTexts[sid] || '';
+          if (textToCheck.length < 50) continue;
+          try {
+            const checkRes = await fetch('/api/ai-check', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ text: textToCheck }),
+            });
+            const checkData = await checkRes.json();
+            const pct = checkData.aiPercent ?? 0;
+            if (sid != null) setAiCheckResults((prev) => ({ ...prev, [sid]: pct }));
+            if (pct > 20) {
+              failedSections.push(sid);
+              await identifyAndSaveAiSentences(textToCheck, pct);
+            }
+          } catch (_) {}
+          await new Promise((r) => setTimeout(r, 500));
+        }
+        for (const sid of failedSections) {
+          await handleAutoRetryHumanization(sid);
         }
         
         alert(`✅ 所有段落人性化完成！（共${sectionsToGenerate.length}段）`);
@@ -2849,7 +2951,30 @@ Output only the bullet point content, without any labels or numbering.`
     }
   };
 
-  // ✅ 自動重新人性化：當 AI% > 20% 時重試，直到 ≤20% 或達最大次數
+  // ✅ 識別並儲存 AI 高風險句子，供後續人性化避免
+  const identifyAndSaveAiSentences = async (text: string, aiPercent: number): Promise<void> => {
+    try {
+      const res = await fetch('/api/ai-identify-sentences', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: text.slice(0, 4000) }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const sentences = data.sentences || [];
+      for (const s of sentences.slice(0, 4)) {
+        if (s?.trim()) {
+          await fetch('/api/ai-sentences', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: s.trim(), aiPercent, source: 'identify' }),
+          });
+        }
+      }
+    } catch (_) {}
+  };
+
+  // ✅ 自動重新人性化：當 AI% > 20% 時識別問題句、儲存、重試，直到 ≤20% 或達最大次數
   const [isAutoRetrying, setIsAutoRetrying] = useState(false);
   const handleAutoRetryHumanization = async (sectionId?: number) => {
     const maxRetries = 5;
@@ -2863,17 +2988,22 @@ Output only the bullet point content, without any labels or numbering.`
           await handleGenerateHumanized('full');
         }
         await new Promise((r) => setTimeout(r, 1500));
-        const currentPercent = await handleAiCheck(sectionId);
+        const result = await handleAiCheck(sectionId);
+        const currentPercent = result?.aiPercent ?? null;
         if (currentPercent != null && currentPercent <= targetPercent) {
           alert(`✅ 第 ${attempt} 次後通過！AI: ${currentPercent}%`);
           return;
         }
+        // AI% > 20%：識別問題句、儲存到資料庫，再重試
+        if (currentPercent != null && currentPercent > targetPercent && result?.text) {
+          await identifyAndSaveAiSentences(result.text, currentPercent);
+        }
         if (attempt < maxRetries) {
-          await new Promise((r) => setTimeout(r, 500));
+          await new Promise((r) => setTimeout(r, 800));
         }
       }
-      const finalPercent = await handleAiCheck(sectionId);
-      alert(`已重試 ${maxRetries} 次，目前 AI: ${finalPercent ?? '?'}%。建議點擊「📥 保存到 AI 資料庫」記錄此內容以改進。`);
+      const finalResult = await handleAiCheck(sectionId);
+      alert(`已重試 ${maxRetries} 次，目前 AI: ${finalResult?.aiPercent ?? '?'}%。問題句已儲存至資料庫，後續人性化將自動避免。`);
     } catch (e: any) {
       alert(e?.message || '自動重試失敗');
     } finally {
@@ -2881,8 +3011,8 @@ Output only the bullet point content, without any labels or numbering.`
     }
   };
 
-  // ✅ AI 檢測：取得文本被判定為 AI 生成的可能性 (0-100%)，回傳 aiPercent
-  const handleAiCheck = async (sectionId?: number): Promise<number | null> => {
+  // ✅ AI 檢測：取得文本被判定為 AI 生成的可能性 (0-100%)，回傳 { aiPercent, text }
+  const handleAiCheck = async (sectionId?: number): Promise<{ aiPercent: number; text: string } | null> => {
     const target = sectionId ?? 'full';
     setIsCheckingAI(target);
     try {
@@ -2905,10 +3035,11 @@ Output only the bullet point content, without any labels or numbering.`
         alert('文本過短，至少需要 50 字元才能檢測');
         return null;
       }
+      const textUsed = text.trim();
       const res = await fetch('/api/ai-check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: text.trim() }),
+        body: JSON.stringify({ text: textUsed }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '檢測失敗');
@@ -2920,7 +3051,7 @@ Output only the bullet point content, without any labels or numbering.`
       } else {
         setAiCheckFullResult(aiPercent);
       }
-      return aiPercent;
+      return { aiPercent, text: textUsed };
     } catch (err: any) {
       console.error('AI 檢測失敗:', err);
       alert(err?.message || 'AI 檢測失敗，請稍後再試');
@@ -7298,7 +7429,7 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                         </div>
                         
                         <p className="text-xs text-slate-400">
-                          💡 提示：人性化處理將使文本更難被 AI 偵測。點擊「🧪 AI 檢測」可查看 AI 百分比（內建 LLM 估計，成本為 0）。0%=人類風格，100%=AI 風格。通過標準：≤20%。當 AI%{'>'}20% 時可點「🔄 自動重新人性化」重試，或「📥 保存到 AI 資料庫」記錄以改進後續人性化。
+                          💡 提示：人性化處理將使文本更難被 AI 偵測。一鍵人性化後會自動檢測，AI%{'>'}20% 的段落會自動識別問題句、儲存至資料庫並重試直到通過。亦可手動點「🧪 AI 檢測」後，點「🔄 自動重新人性化」或「📥 保存到 AI 資料庫」。
                         </p>
                       </div>
 
