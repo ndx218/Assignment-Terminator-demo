@@ -5,7 +5,9 @@ import { callLLM, mapMode } from '@/lib/ai';
 import { deductCredits } from '@/lib/credits';
 import { prisma } from '@/lib/prisma';
 
-type ResBody = { result?: string; humanized?: string; resultZh?: string; humanizedZh?: string; remainingCredits?: number; error?: string; engine?: 'undetectable' | 'llm' };
+type ResBody =
+  | { result?: string; humanized?: string; resultZh?: string; humanizedZh?: string; remainingCredits?: number; error?: string; engine?: 'undetectable' | 'llm' }
+  | { hasUndetectable: boolean; engines: string[] };
 
 function detectLang(text: string): 'zh' | 'en' {
   return /[\u4e00-\u9fff]/.test(text) ? 'zh' : 'en';
