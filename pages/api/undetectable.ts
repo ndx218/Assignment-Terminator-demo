@@ -3,6 +3,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { callLLM, mapMode } from '@/lib/ai';
 import { deductCredits } from '@/lib/credits';
+import { prisma } from '@/lib/prisma';
 
 type ResBody = { result?: string; humanized?: string; resultZh?: string; humanizedZh?: string; remainingCredits?: number; error?: string };
 
@@ -25,6 +26,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     mode = 'free',
     language,
     generateBoth = false, // ✅ 是否同时生成中英文版本
+    wordCount, // ✅ 目標字數（人性化時勿縮短）
   } = (req.body ?? {}) as Record<string, any>;
 
   if (!text || typeof text !== 'string' || !text.trim()) {
@@ -73,10 +75,38 @@ Directly output the optimized text without any additional explanations, markers,
 
   const system = lang === 'zh' ? systemHumanizeZH : systemHumanizeEN;
 
+  // ✅ 從 AI 資料庫取得近期高風險句型，提示避免
+  let avoidPatterns = '';
+  try {
+    const rows = await prisma.aiSentence.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+      select: { text: true },
+    });
+    if (rows.length > 0) {
+      const samples = rows.map((r) => r.text?.slice(0, 80)).filter(Boolean);
+      if (samples.length > 0) {
+        avoidPatterns = lang === 'zh'
+          ? `\n\n【避免以下 AI 風格句型】請勿使用與以下類似的表達：\n${samples.map((s) => `- "${s}..."`).join('\n')}`
+          : `\n\n【AVOID these AI-like patterns】Do not use similar phrasing:\n${samples.map((s) => `- "${s}..."`).join('\n')}`;
+      }
+    }
+  } catch (_) {
+    // AiSentence 表可能尚未 migration，忽略
+  }
+
+  // ✅ 若有目標字數，強調勿縮短（結論等段落常被縮短）
+  const targetWc = wordCount ? Number(wordCount) : null;
+  const lengthInstruction = targetWc
+    ? (lang === 'zh'
+      ? `\n\n【重要】目標約${targetWc}字，請勿縮短。若原文不足，請擴充至約${targetWc}字。`
+      : `\n\n【IMPORTANT】Target ~${targetWc} words. Do NOT shorten. If input is shorter, expand to ~${targetWc} words.`)
+    : '';
+
   // 构建用户提示
   const userPrompt = lang === 'zh'
-    ? `請對以下文本進行人性化處理，使其更難被 AI 偵測，但保持內容與語意一致：\n\n${text}`
-    : `Please humanize the following text to make it harder for AI detection while keeping the content and meaning consistent:\n\n${text}`;
+    ? `請對以下文本進行人性化處理，使其更難被 AI 偵測，但保持內容與語意一致。${lengthInstruction}${avoidPatterns}\n\n${text}`
+    : `Please humanize the following text to make it harder for AI detection while keeping the content and meaning consistent.${lengthInstruction}${avoidPatterns}\n\n${text}`;
 
   try {
     const llmOpts = mapMode('review', mode);

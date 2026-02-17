@@ -160,3 +160,14 @@ model Reference {
   @@unique([outlineId, url])
   @@unique([outlineId, doi])
 }
+
+// ✅ AI 偵測到的高風險句子／段落，用於改進人性化提示
+model AiSentence {
+  id        String   @id @default(cuid())
+  text      String   @db.Text
+  aiPercent Int?
+  source    String?  // 'gptzero' | 'llm' | 'user'
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}

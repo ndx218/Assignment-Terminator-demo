@@ -2653,6 +2653,7 @@ Output only the bullet point content, without any labels or numbering.`
       setIsGeneratingHumanized(true);
       setCurrentGeneratingHumanizedSection(sectionId);
       try {
+        const targetWordCount = getSectionWordCount(sectionId, form);
         const response = await fetch('/api/undetectable', {
           method: 'POST',
           headers: {
@@ -2662,7 +2663,8 @@ Output only the bullet point content, without any labels or numbering.`
               text: sourceText,
               mode: selectedModel,
               language: form.language === '中文' ? 'zh' : 'en',
-              generateBoth: true, // ✅ 同时生成中英文版本
+              generateBoth: true,
+              wordCount: targetWordCount, // ✅ 避免人性化時縮短（尤其結論）
             }),
         });
 
@@ -2763,6 +2765,7 @@ Output only the bullet point content, without any labels or numbering.`
           // ✅ 确定语言（用于生成对应语言的人性化文本）
           const currentLang = form.language === '中文' ? 'zh' : 'en';
           
+          const targetWordCount = getSectionWordCount(sectionId, form);
           const response = await fetch('/api/undetectable', {
             method: 'POST',
             headers: {
@@ -2772,7 +2775,8 @@ Output only the bullet point content, without any labels or numbering.`
               text: sourceText,
               mode: selectedModel,
               language: currentLang,
-              generateBoth: true, // ✅ 同时生成中英文版本
+              generateBoth: true,
+              wordCount: targetWordCount, // ✅ 避免人性化時縮短（尤其結論）
             }),
           });
 
@@ -2829,15 +2833,63 @@ Output only the bullet point content, without any labels or numbering.`
     }
   };
 
-  // ✅ AI 檢測：取得文本被判定為 AI 生成的可能性 (0-100%)
-  const handleAiCheck = async (sectionId?: number) => {
+  // ✅ 保存高 AI% 文本到資料庫，供後續人性化改進
+  const handleSaveToAiDatabase = async (text: string, aiPercent: number, source?: string) => {
+    try {
+      const res = await fetch('/api/ai-sentences', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: text.slice(0, 2000), aiPercent, source: source || 'llm' }),
+      });
+      if (!res.ok) throw new Error('儲存失敗');
+      alert('✅ 已保存到 AI 資料庫，後續人性化將避免類似句型');
+    } catch (e: any) {
+      console.error('保存失敗:', e);
+      alert(e?.message || '保存失敗');
+    }
+  };
+
+  // ✅ 自動重新人性化：當 AI% > 20% 時重試，直到 ≤20% 或達最大次數
+  const [isAutoRetrying, setIsAutoRetrying] = useState(false);
+  const handleAutoRetryHumanization = async (sectionId?: number) => {
+    const maxRetries = 5;
+    const targetPercent = 20;
+    setIsAutoRetrying(true);
+    try {
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        if (sectionId) {
+          await handleGenerateHumanized('section', sectionId);
+        } else {
+          await handleGenerateHumanized('full');
+        }
+        await new Promise((r) => setTimeout(r, 1500));
+        const currentPercent = await handleAiCheck(sectionId);
+        if (currentPercent != null && currentPercent <= targetPercent) {
+          alert(`✅ 第 ${attempt} 次後通過！AI: ${currentPercent}%`);
+          return;
+        }
+        if (attempt < maxRetries) {
+          await new Promise((r) => setTimeout(r, 500));
+        }
+      }
+      const finalPercent = await handleAiCheck(sectionId);
+      alert(`已重試 ${maxRetries} 次，目前 AI: ${finalPercent ?? '?'}%。建議點擊「📥 保存到 AI 資料庫」記錄此內容以改進。`);
+    } catch (e: any) {
+      alert(e?.message || '自動重試失敗');
+    } finally {
+      setIsAutoRetrying(false);
+    }
+  };
+
+  // ✅ AI 檢測：取得文本被判定為 AI 生成的可能性 (0-100%)，回傳 aiPercent
+  const handleAiCheck = async (sectionId?: number): Promise<number | null> => {
     const target = sectionId ?? 'full';
     setIsCheckingAI(target);
     try {
       let text = '';
       if (sectionId) {
         const section = humanizedSections[sectionId];
-        if (!section) return;
+        if (!section) return null;
         text = form.language === '英文' ? (section.en || section.zh || '') : (section.zh || section.en || '');
       } else {
         text = outlinePoints
@@ -2851,7 +2903,7 @@ Output only the bullet point content, without any labels or numbering.`
       }
       if (!text || text.trim().length < 50) {
         alert('文本過短，至少需要 50 字元才能檢測');
-        return;
+        return null;
       }
       const res = await fetch('/api/ai-check', {
         method: 'POST',
@@ -2868,9 +2920,11 @@ Output only the bullet point content, without any labels or numbering.`
       } else {
         setAiCheckFullResult(aiPercent);
       }
+      return aiPercent;
     } catch (err: any) {
       console.error('AI 檢測失敗:', err);
       alert(err?.message || 'AI 檢測失敗，請稍後再試');
+      return null;
     } finally {
       setIsCheckingAI(null);
     }
@@ -7197,16 +7251,41 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                               </button>
                             )}
                             {aiCheckFullResult != null && (
-                              <span className={`px-3 py-1 rounded text-sm font-semibold ${
-                                aiCheckFullResult <= 20 ? 'bg-emerald-600/80 text-white' :
-                                aiCheckFullResult <= 60 ? 'bg-amber-600/80 text-white' :
-                                'bg-red-600/80 text-white'
-                              }`} title={aiCheckSource === 'gptzero' ? 'GPTZero 專業檢測' : 'LLM 估計'}>
-                                {aiCheckSource === 'gptzero' ? 'GPTZero ' : ''}AI: {aiCheckFullResult}%
-                                <span className="ml-1 text-xs opacity-90">
-                                  {aiCheckFullResult <= 20 ? (isUI_EN ? '✓ Pass' : '✓ 通過') : (isUI_EN ? '✗ Not pass' : '✗ 未通過')}
+                              <>
+                                <span className={`px-3 py-1 rounded text-sm font-semibold ${
+                                  aiCheckFullResult <= 20 ? 'bg-emerald-600/80 text-white' :
+                                  aiCheckFullResult <= 60 ? 'bg-amber-600/80 text-white' :
+                                  'bg-red-600/80 text-white'
+                                }`} title={aiCheckSource === 'gptzero' ? 'GPTZero 專業檢測' : 'LLM 估計'}>
+                                  {aiCheckSource === 'gptzero' ? 'GPTZero ' : ''}AI: {aiCheckFullResult}%
+                                  <span className="ml-1 text-xs opacity-90">
+                                    {aiCheckFullResult <= 20 ? (isUI_EN ? '✓ Pass' : '✓ 通過') : (isUI_EN ? '✗ Not pass' : '✗ 未通過')}
+                                  </span>
                                 </span>
-                              </span>
+                                {aiCheckFullResult > 20 && (
+                                  <>
+                                    <button
+                                      onClick={() => handleAutoRetryHumanization()}
+                                      disabled={isAutoRetrying || isGeneratingHumanized}
+                                      className="px-2 py-1 bg-amber-600 hover:bg-amber-500 text-white text-xs rounded disabled:opacity-50"
+                                    >
+                                      {isAutoRetrying ? '🔄 重試中...' : '🔄 自動重新人性化'}
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        const text = outlinePoints.filter(p => humanizedSections[p.id]).map(p => {
+                                          const s = humanizedSections[p.id];
+                                          return s ? (form.language === '英文' ? (s.en || s.zh || '') : (s.zh || s.en || '')) : '';
+                                        }).filter(Boolean).join('\n\n');
+                                        if (text) handleSaveToAiDatabase(text, aiCheckFullResult, aiCheckSource ?? undefined);
+                                      }}
+                                      className="px-2 py-1 bg-slate-600 hover:bg-slate-500 text-white text-xs rounded"
+                                    >
+                                      📥 保存到 AI 資料庫
+                                    </button>
+                                  </>
+                                )}
+                              </>
                             )}
                             <button 
                               onClick={() => handleGenerateHumanized('full')}
@@ -7219,7 +7298,7 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                         </div>
                         
                         <p className="text-xs text-slate-400">
-                          💡 提示：人性化處理將使文本更難被 AI 偵測。點擊「🧪 AI 檢測」可查看 AI 百分比（內建 LLM 估計，成本為 0）。0%=人類風格，100%=AI 風格。通過標準：≤20%。
+                          💡 提示：人性化處理將使文本更難被 AI 偵測。點擊「🧪 AI 檢測」可查看 AI 百分比（內建 LLM 估計，成本為 0）。0%=人類風格，100%=AI 風格。通過標準：≤20%。當 AI%>20% 時可點「🔄 自動重新人性化」重試，或「📥 保存到 AI 資料庫」記錄以改進後續人性化。
                         </p>
                       </div>
 
@@ -7282,13 +7361,21 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                                             {isCheckingAI === point.id ? '🔄' : '🧪 AI'}
                                           </button>
                                           {aiCheckResults[point.id] != null && (
-                                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                                              aiCheckResults[point.id] <= 20 ? 'bg-emerald-600/80' :
-                                              aiCheckResults[point.id] <= 60 ? 'bg-amber-600/80' :
-                                              'bg-red-600/80'
-                                            } text-white`} title={aiCheckResults[point.id]! <= 20 ? (isUI_EN ? 'Pass (≤20%)' : '通過 (≤20%)') : (isUI_EN ? 'Not pass (>20%)' : '未通過 (>20%)')}>
-                                              AI: {aiCheckResults[point.id]}% {aiCheckResults[point.id]! <= 20 ? '✓' : '✗'}
-                                            </span>
+                                            <>
+                                              <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                                aiCheckResults[point.id]! <= 20 ? 'bg-emerald-600/80' :
+                                                aiCheckResults[point.id]! <= 60 ? 'bg-amber-600/80' :
+                                                'bg-red-600/80'
+                                              } text-white`} title={aiCheckResults[point.id]! <= 20 ? (isUI_EN ? 'Pass (≤20%)' : '通過 (≤20%)') : (isUI_EN ? 'Not pass (>20%)' : '未通過 (>20%)')}>
+                                                AI: {aiCheckResults[point.id]}% {aiCheckResults[point.id]! <= 20 ? '✓' : '✗'}
+                                              </span>
+                                              {aiCheckResults[point.id]! > 20 && (
+                                                <>
+                                                  <button onClick={() => handleAutoRetryHumanization(point.id)} disabled={isAutoRetrying || isGeneratingHumanized} className="px-2 py-0.5 bg-amber-600 text-white text-xs rounded hover:bg-amber-500 disabled:opacity-50">🔄</button>
+                                                  <button onClick={() => handleSaveToAiDatabase(sectionHumanized.en || sectionHumanized.zh || '', aiCheckResults[point.id]!, aiCheckSource ?? undefined)} className="px-2 py-0.5 bg-slate-600 text-white text-xs rounded hover:bg-slate-500">📥</button>
+                                                </>
+                                              )}
+                                            </>
                                           )}
                                           <button
                                           onClick={() => {
@@ -7332,13 +7419,21 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                                             {isCheckingAI === point.id ? '🔄' : '🧪 AI'}
                                           </button>
                                           {aiCheckResults[point.id] != null && (
-                                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                                              aiCheckResults[point.id] <= 20 ? 'bg-emerald-600/80' :
-                                              aiCheckResults[point.id] <= 60 ? 'bg-amber-600/80' :
-                                              'bg-red-600/80'
-                                            } text-white`} title={aiCheckResults[point.id]! <= 20 ? (isUI_EN ? 'Pass (≤20%)' : '通過 (≤20%)') : (isUI_EN ? 'Not pass (>20%)' : '未通過 (>20%)')}>
-                                              AI: {aiCheckResults[point.id]}% {aiCheckResults[point.id]! <= 20 ? '✓' : '✗'}
-                                            </span>
+                                            <>
+                                              <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                                aiCheckResults[point.id]! <= 20 ? 'bg-emerald-600/80' :
+                                                aiCheckResults[point.id]! <= 60 ? 'bg-amber-600/80' :
+                                                'bg-red-600/80'
+                                              } text-white`} title={aiCheckResults[point.id]! <= 20 ? (isUI_EN ? 'Pass (≤20%)' : '通過 (≤20%)') : (isUI_EN ? 'Not pass (>20%)' : '未通過 (>20%)')}>
+                                                AI: {aiCheckResults[point.id]}% {aiCheckResults[point.id]! <= 20 ? '✓' : '✗'}
+                                              </span>
+                                              {aiCheckResults[point.id]! > 20 && (
+                                                <>
+                                                  <button onClick={() => handleAutoRetryHumanization(point.id)} disabled={isAutoRetrying || isGeneratingHumanized} className="px-2 py-0.5 bg-amber-600 text-white text-xs rounded hover:bg-amber-500 disabled:opacity-50">🔄</button>
+                                                  <button onClick={() => handleSaveToAiDatabase(sectionHumanized.zh || sectionHumanized.en || '', aiCheckResults[point.id]!, aiCheckSource ?? undefined)} className="px-2 py-0.5 bg-slate-600 text-white text-xs rounded hover:bg-slate-500">📥</button>
+                                                </>
+                                              )}
+                                            </>
                                           )}
                                           <button
                                           onClick={() => {
