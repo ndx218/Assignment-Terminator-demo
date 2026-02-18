@@ -30,7 +30,7 @@ async function humanizeViaUndetectableAI(
       readability: 'University',
       purpose: 'Essay',
       strength: 'More Human',
-      model: lang === 'en' ? 'v11' : 'v2', // v11 best for English, v2 supports all languages
+      model: lang === 'en' ? 'v11sr' : 'v2', // v11sr = best for English (slower, best humanization); v2 = all languages
     }),
   });
   const submitData = await submitRes.json();
@@ -135,41 +135,68 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
 
   // 构建人性化处理的系统提示（內建 LLM fallback）
-  const systemHumanizeZH = `你是一位專業的文本人性化處理專家。
+  const systemHumanizeZH = `你是學術人性化專家。目標：產出具有「控制性統計不規則」與「智識真實性」的文本。偵測器測量語言分佈穩定度 — 你要引入控制性不穩定。
 
-請對提供的文本進行優化，使其更難被 AI 偵測工具識別，同時保持：
-1. 內容的核心含義和論點完全一致
-2. 學術語氣和專業性
-3. 段落結構和邏輯順序
-4. 原有的標題和格式（如果有）
+核心哲學：
+- 不要模仿「人類寫作」— 模仿學術思考過程。AI 給結論；學者探索結論。
+- 0% AI 分數不現實。目標：分析深度 + 認識論謹慎 + 句式變化。
+- 高分學術寫作特徵：限制語氣、概念張力、論證不穩定性、句式變化、部分不對稱。
 
-優化策略：
-- 使用更自然的語句表達方式
-- 適當調整句式結構，增加變化
-- 使用更口語化但保持學術規範的措辭
-- 避免過於機械或重複的表達模式
-- 保持專業術語的準確性
+改寫引擎 — 依序執行：
 
-輸出格式：
-直接輸出優化後的文本，不要添加任何額外的說明、標記或註釋。`;
+1) 移除 AI 模板句：如「近年來」「本文將討論」→ 改為直接概念主張。「總而言之」「首先、其次」可保留
 
-  const systemHumanizeEN = `You are a professional text humanization expert.
+2) 注入認識論限制語氣（每 150–200 字 2–3 處）：
+   「在某種程度上」「可爭議地」「或許可理解為」「似乎」「不能單純歸因於」「傾向於」「在許多方面」「未必意味著」「仍有爭議」「取決於」
 
-Please optimize the provided text to make it harder for AI detection tools to identify, while maintaining:
-1. The core meaning and arguments completely unchanged
-2. Academic tone and professionalism
-3. Paragraph structure and logical order
-4. Original headings and formatting (if any)
+3) 插入概念張力（每段至少一處）：
+   「然而，此解釋可能過度簡化問題。」
+   「此主張可能誇大因果影響。」
+   「該關係仍是條件性的，而非決定性的。」
 
-Optimization strategies:
-- Use more natural sentence expressions
-- Appropriately adjust sentence structures for variety
-- Use more conversational but academically appropriate phrasing
-- Avoid overly mechanical or repetitive expression patterns
-- Maintain accuracy of technical terms
+4) 句式變化：長句（30+ 字）與短句（6–12 字）交錯，避免固定節奏
 
-Output format:
-Directly output the optimized text without any additional explanations, markers, or annotations.`;
+5) 結構不對稱：打破「論點→例子→解釋→結論」的模板，可先舉例再抽象化。「首先、其次」「總而言之」等連接詞可保留
+
+輸出：直接輸出改寫後文本，無額外說明。`;
+
+  const systemHumanizeEN = `You are an academic humanization specialist. Your goal: produce text with controlled statistical irregularity and intellectual authenticity. Detectors measure language distribution stability — you introduce controlled instability.
+
+CORE PHILOSOPHY:
+- Do NOT imitate "human writing" — imitate the academic thinking process. AI gives conclusions; scholars explore them.
+- 0% AI score is unrealistic. Target: analytical depth + epistemic caution + sentence variance.
+- High-scoring academic writing has: hedging, conceptual tension, argument instability, sentence variance, partial asymmetry.
+
+REWRITE ENGINE — Apply these steps:
+
+1) REMOVE AI TEMPLATE INDICATORS. Replace with direct conceptual claims:
+   BAN: "In recent years", "This essay will discuss", "There has been growing concern", "Since the dawn of time"
+   OK: "In conclusion", "Firstly/Secondly" — these are acceptable academic connectors
+   USE: Direct analytical framing where possible, but connectors like In conclusion/Firstly/Secondly are fine
+
+2) INJECT EPISTEMIC HEDGING (2–3 per 150–200 words):
+   "to some extent", "arguably", "may be interpreted as", "appears to", "cannot be reduced to", "tends to", "in many respects", "does not necessarily imply", "remains subject to debate", "is contingent upon"
+
+3) INSERT CONCEPTUAL TENSION (at least one per major section):
+   "However, this interpretation may oversimplify the issue."
+   "Such a claim risks overstating causal influence."
+   "The relationship remains conditional rather than deterministic."
+   "This assumption deserves closer scrutiny."
+   "The explanation is necessarily partial."
+
+4) SENTENCE VARIANCE (critical for burstiness):
+   - Include complex sentences exceeding 30 words
+   - Follow with concise analytical emphasis (6–12 words): "The claim is limited.", "Context matters.", "The outcome is conditional."
+   - Avoid consistent rhythmic patterns
+
+5) STRUCTURAL ASYMMETRY:
+   Break AI's Point→Example→Explanation→Conclusion pattern. Try: example before abstraction, question before claim, counter-example before thesis.
+
+6) CONDITIONAL FRAMING: "only under certain conditions", "within specific institutional contexts", "depending on historical contingencies"
+
+7) AVOID: hyper-polished symmetry, overly generic phrasing. "Firstly", "Secondly", "In conclusion" are acceptable. Allow minor rhetorical asymmetry.
+
+Output: Directly output the rewritten text. No explanations or annotations.`;
 
   const system = lang === 'zh' ? systemHumanizeZH : systemHumanizeEN;
 
@@ -203,8 +230,8 @@ Directly output the optimized text without any additional explanations, markers,
 
   // 构建用户提示
   const userPrompt = lang === 'zh'
-    ? `請對以下文本進行人性化處理，使其更難被 AI 偵測，但保持內容與語意一致。${lengthInstruction}${avoidPatterns}\n\n${text}`
-    : `Please humanize the following text to make it harder for AI detection while keeping the content and meaning consistent.${lengthInstruction}${avoidPatterns}\n\n${text}`;
+    ? `請依學術人性化引擎規則改寫以下文本。目標：控制性統計不規則 + 智識真實性（非追求 0%）。保持論點與語意一致。${lengthInstruction}${avoidPatterns}\n\n【原文】\n${text}`
+    : `Rewrite the following text using the academic humanization engine rules. Target: controlled statistical irregularity + intellectual authenticity (not 0%). Preserve arguments and meaning.${lengthInstruction}${avoidPatterns}\n\n【Original】\n${text}`;
 
   try {
     const llmOpts = mapMode('review', mode);

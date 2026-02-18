@@ -2696,7 +2696,12 @@ Output only the bullet point content, without any labels or numbering.`
   };
 
   // ✅ 生成人性化文本（支持分段生成和一键生成）
-  const handleGenerateHumanized = async (type: 'full' | 'section' = 'full', sectionId?: number) => {
+  // engineOverride: 重試時可切換引擎（Undetectable.AI ↔ LLM）以降低 AI%
+  const handleGenerateHumanized = async (
+    type: 'full' | 'section' = 'full',
+    sectionId?: number,
+    engineOverride?: 'auto' | 'undetectable' | 'llm'
+  ) => {
     if (type === 'section' && sectionId) {
       // 分段生成：针对单个段落
       // 优先使用修订稿，如果没有则使用草稿
@@ -2739,7 +2744,7 @@ Output only the bullet point content, without any labels or numbering.`
               language: form.language === '中文' ? 'zh' : 'en',
               generateBoth: true,
               wordCount: targetWordCount, // ✅ 避免人性化時縮短（尤其結論）
-              humanizeEngine, // ✅ 人性化引擎：auto | undetectable | llm
+              humanizeEngine: engineOverride ?? humanizeEngine, // ✅ 重試時可切換引擎
             }),
         });
 
@@ -2853,7 +2858,7 @@ Output only the bullet point content, without any labels or numbering.`
               language: currentLang,
               generateBoth: true,
               wordCount: targetWordCount, // ✅ 避免人性化時縮短（尤其結論）
-              humanizeEngine, // ✅ 人性化引擎：auto | undetectable | llm
+              humanizeEngine: engineOverride ?? humanizeEngine, // ✅ 重試時可切換引擎
             }),
           });
 
@@ -2979,17 +2984,26 @@ Output only the bullet point content, without any labels or numbering.`
   };
 
   // ✅ 自動重新人性化：當 AI% > 20% 時識別問題句、儲存、重試，直到 ≤20% 或達最大次數
+  // 重試時交替使用 Undetectable.AI 與 LLM，提高通過率
   const [isAutoRetrying, setIsAutoRetrying] = useState(false);
   const handleAutoRetryHumanization = async (sectionId?: number) => {
-    const maxRetries = 5;
+    const maxRetries = 6; // 增加至 6 次，含交替引擎
     const targetPercent = 20;
     setIsAutoRetrying(true);
     try {
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        // 偶數次重試時切換引擎（Undetectable.AI ↔ LLM），提高通過率
+        const useAlternate = attempt >= 2 && attempt % 2 === 0;
+        const effectiveEngine = humanizeEngine === 'auto' ? (hasUndetectable ? 'undetectable' : 'llm') : humanizeEngine;
+        const retryEngine: 'undetectable' | 'llm' | undefined = useAlternate
+          ? (effectiveEngine === 'undetectable' && hasUndetectable ? 'llm' : hasUndetectable ? 'undetectable' : undefined)
+          : undefined;
+        const engineOverride = retryEngine;
+
         if (sectionId) {
-          await handleGenerateHumanized('section', sectionId);
+          await handleGenerateHumanized('section', sectionId, engineOverride);
         } else {
-          await handleGenerateHumanized('full');
+          await handleGenerateHumanized('full', undefined, engineOverride);
         }
         await new Promise((r) => setTimeout(r, 1500));
         const result = await handleAiCheck(sectionId);
@@ -7493,7 +7507,7 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                         </div>
                         
                         <p className="text-xs text-slate-400 mt-2">
-                          💡 提示：人性化處理將使文本更難被 AI 偵測。一鍵人性化後會自動檢測，AI%{'>'}20% 的段落會自動識別問題句、儲存至資料庫並重試直到通過。亦可手動點「🧪 AI 檢測」後，點「🔄 自動重新人性化」或「📥 保存到 AI 資料庫」。
+                          💡 <strong>{isUI_EN ? 'Academic Humanization Engine' : '學術人性化引擎'}</strong>：{isUI_EN ? 'Target: controlled statistical irregularity + intellectual authenticity. 0% is unrealistic — detectors measure distribution stability; we control instability.' : '目標是「控制性統計不規則 + 智識真實性」，非追求 0%（不現實）。Detector 抓的是語言分佈穩定度，我們做的是控制不穩定。'} 一鍵人性化後會自動檢測，AI%{'>'}20% 的段落會自動重試。{isUI_EN ? 'Or manually: AI Check → Auto Re-humanize / Save to DB.' : '亦可手動「🧪 AI 檢測」→「🔄 自動重新人性化」或「📥 保存到 AI 資料庫」。'}
                         </p>
                       </div>
 
