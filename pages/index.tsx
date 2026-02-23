@@ -68,6 +68,7 @@ export default function HomePage() {
     bodyCount: 3,
     bodyWords: [240, 240, 240],
     bodyContent: ['', '', ''],
+    refsPerSection: 1, // 每段文獻數（預設 1）
     conclusionWords: 140,
     totalWords: 1000,
     rubric: "",
@@ -100,6 +101,7 @@ export default function HomePage() {
     contentLanguage: 'Content language', interfaceLanguage: 'Interface language',
     settings: 'Assignment Settings', planner: 'Paragraph Planner', introWords: 'Intro Words', bodyCount: 'Body Count', conclusionWords: 'Conclusion Words',
     body: (n: number) => `Body ${n}`, wordCount: 'Words', generalContent: 'General Content', describeContent: 'Describe content...',
+    refsPerSection: 'Refs per section',
     total: 'Total', words: 'words', paragraphs: 'paragraphs', collapse: 'Collapse', expand: 'Expand',
     contentDetail: 'Content Details', describeRequirements: 'Please describe your assignment requirements in detail...',
     gradingCriteria: 'Grading Criteria', enterCriteria: 'Enter grading criteria',
@@ -113,6 +115,7 @@ export default function HomePage() {
     contentLanguage: '內容語言', interfaceLanguage: '界面語言',
     settings: '功課設定', planner: '段落規劃器', introWords: '引言字數', bodyCount: '主體數量', conclusionWords: '結論字數',
     body: (n: number) => `主體${n}`, wordCount: '字數', generalContent: '大致內容', describeContent: '描述內容...',
+    refsPerSection: '每段文獻數',
     total: '總計', words: '字', paragraphs: '段', collapse: '收起', expand: '展開',
     contentDetail: '內容細節', describeRequirements: '請詳細描述您的作業要求...',
     gradingCriteria: '評分標準', enterCriteria: '請輸入評分標準',
@@ -2954,6 +2957,76 @@ Output only the bullet point content, without any labels or numbering.`
     }
   };
 
+  // ✅ 一鍵完成：大綱 → 草稿 → 教師評論 → 修訂稿 → 人性化
+  const [isOneClickComplete, setIsOneClickComplete] = useState(false);
+  const handleOneClickComplete = async () => {
+    if (!form.title.trim()) {
+      alert('請先輸入論文標題');
+      return;
+    }
+    setIsOneClickComplete(true);
+    try {
+      // 1. 若無大綱則先生成
+      if (outlinePoints.length === 0) {
+        setActiveTab('outline');
+        setIsGenerating(true);
+        const outlineRes = await fetch('/api/outline', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: form.title,
+            wordCount: form.totalWords,
+            language: form.language,
+            tone: form.tone,
+            detail: form.detail,
+            reference: '',
+            rubric: form.rubric,
+            paragraph: form.bodyCount || 3,
+            mode: selectedModel,
+            paragraphPlan: {
+              intro: form.introWords || 140,
+              bodyCount: form.bodyCount || 3,
+              body: form.bodyWords || [240, 240, 240],
+              bodyContent: form.bodyContent || ['', '', ''],
+              conclusion: form.conclusionWords || 140
+            }
+          }),
+        });
+        setIsGenerating(false);
+        if (!outlineRes.ok) {
+          const err = await outlineRes.json();
+          throw new Error(err?.error || '大綱生成失敗');
+        }
+        const outlineData = await outlineRes.json();
+        syncCreditsFromResponse(outlineData);
+        if (outlineData.outline) {
+          const parsed = parseOutlineToPoints(outlineData.outline);
+          setOutlinePoints(normalizeOutlinePoints(parsed));
+          setGeneratedContent('');
+          setGeneratedContentZh('');
+        }
+      }
+      // 2. 草稿
+      setActiveTab('draft');
+      await handleGenerateDraft('full');
+      // 3. 教師評論
+      setActiveTab('review');
+      await handleGenerateReview('full');
+      // 4. 修訂稿
+      setActiveTab('revision');
+      await handleGenerateRevision('full');
+      // 5. 人性化
+      setActiveTab('final');
+      await handleGenerateHumanized('full');
+      alert('✅ 一鍵完成！已依序完成：大綱 → 草稿 → 教師評論 → 修訂稿 → 人性化');
+    } catch (e: any) {
+      console.error('一鍵完成失敗:', e);
+      alert(e?.message || '一鍵完成失敗，請稍後再試');
+    } finally {
+      setIsOneClickComplete(false);
+    }
+  };
+
   // ✅ 保存高 AI% 文本到資料庫，供後續人性化改進
   const handleSaveToAiDatabase = async (text: string, aiPercent: number, source?: string) => {
     try {
@@ -3431,9 +3504,10 @@ ${ref.year ? `年份：${ref.year}` : ''}
         displayResults = convertedResults.filter(ref => excludeBlocked(ref)).slice(0, 10);
       }
 
-      // AI 選擇：從結果中挑選最相關的 3 篇（當結果 ≥ 3 筆時由 AI 排序）
+      // AI 選擇：從結果中挑選最相關的 N 篇（段落級用 refsPerSection，bullet 級用 3）
+      const topNForRank = bulletKey ? 3 : Math.max(form.refsPerSection ?? 1, 1);
       let aiRanked = false;
-      if (displayResults.length >= 3) {
+      if (displayResults.length >= Math.min(3, topNForRank)) {
         try {
           const rankRes = await fetch('/api/references/rank', {
             method: 'POST',
@@ -3449,7 +3523,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
                 source: r.source,
                 summary: (r.summary || r.deepAnalysis?.chineseExplanation || '').slice(0, 300),
               })),
-              topN: 3,
+              topN: topNForRank,
             }),
           });
           if (rankRes.ok) {
@@ -3481,10 +3555,12 @@ ${ref.year ? `年份：${ref.year}` : ''}
       
       setSearchResults(verifiedResults);
       
-      // 自动将搜索结果添加到对应的bullet point（如果提供了bulletKey）
-      // 注意：displayResults 已依 AI 排序，前 3 篇為 AI 選出的最相關文獻
-      if (bulletKey && verifiedResults.length > 0) {
-        const topResults = verifiedResults.slice(0, 3);
+      // 自動將搜尋結果加入：有 bulletKey 則加入對應 bullet；無 bulletKey 則以段落為單位，依 refsPerSection 加入
+      const refsToAdd = form.refsPerSection ?? 1;
+      if (verifiedResults.length > 0) {
+        const topResults = bulletKey
+          ? verifiedResults.slice(0, 3)
+          : verifiedResults.slice(0, refsToAdd);
         for (const ref of topResults) {
           await addReferenceToPoint(pointId, ref, bulletKey);
         }
@@ -3499,7 +3575,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
           show: true,
           type: 'success',
           title: '搜索完成！',
-          message: `成功找到 ${verifiedResults.length} 篇已验证的高质量文献。${bulletKey ? (aiRanked ? 'AI已自動選擇最相關的3篇文獻並添加到對應段落。' : '已自動添加前3篇文獻到對應段落。') : ''}`,
+          message: `成功找到 ${verifiedResults.length} 篇已验证的高质量文献。${bulletKey ? (aiRanked ? 'AI已自動選擇最相關的3篇文獻並添加到對應段落。' : '已自動添加前3篇文獻到對應段落。') : (aiRanked ? `AI已自動選擇最相關的${refsToAdd}篇文獻並添加到本段。` : `已自動添加前${refsToAdd}篇文獻到本段。`)}`,
           details: ['所有显示的文献都包含真实摘要和准确的中文概述。', aiRanked ? '文獻已依 AI 相關度排序，您可查看並選擇需引用的文獻。' : '您可以查看并选择需要引用的文献。']
         });
       } else if (verifiedResults.length > 0) {
@@ -3591,6 +3667,32 @@ ${ref.year ? `年份：${ref.year}` : ''}
     // 移除硬编码的AI关键词增强
     // 直接返回原始关键词，不添加额外的AI相关内容
     return keyword;
+  };
+
+  // 根據整段內容生成關鍵字（用於段落級搜尋）
+  const generateEnglishKeywordsFromParagraph = async (point: OutlinePoint): Promise<string> => {
+    const bodyIdx = point.id >= 2 ? point.id - 2 : -1;
+    const bodyContent = bodyIdx >= 0 && form.bodyContent?.[bodyIdx] ? form.bodyContent[bodyIdx] : '';
+    const bulletText = point.bulletPoints?.length ? point.bulletPoints.join(' ') : '';
+    const paragraphContent = [point.title, point.content, bodyContent, bulletText].filter(Boolean).join(' ').trim();
+    if (!paragraphContent) return `"${form.title || 'research'}"`;
+    try {
+      const res = await fetch('/api/generate-keywords', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          paragraphContent: paragraphContent.slice(0, 1500),
+          pointId: point.id,
+          outlineTitle: form.title || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.keywords) return data.keywords;
+      throw new Error(data.error);
+    } catch (e: any) {
+      console.warn('段落關鍵字生成失敗，使用 fallback:', e);
+      return `"${paragraphContent.slice(0, 50).replace(/[\u4e00-\u9fff]/g, ' ').trim() || 'research'}"`;
+    }
   };
 
   // 生成英文關鍵字 - 使用AI生成
@@ -4032,6 +4134,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
     if (bulletKey) {
       (reference as any).bulletKey = bulletKey;
     }
+    (reference as any).isSelected = true;
     
     setOutlinePoints(prev => prev.map(point => 
       point.id === pointId 
@@ -4784,8 +4887,9 @@ ${ref.year ? `年份：${ref.year}` : ''}
                           <div>{isUI_EN ? 'Body' : '主體'}: {form.bodyCount || 3}{isUI_EN ? ' para' : '段'}</div>
                           <div>{isUI_EN ? 'Conclusion' : '結論'}: {form.conclusionWords || 140}{t.words}</div>
                         </div>
-                        <div className="mt-1 flex items-center justify-between">
+                        <div className="mt-1 flex items-center justify-between flex-wrap gap-2">
                           <span>{t.total}: {form.totalWords || 1000}{t.words}</span>
+                          <span className="text-cyan-200">{t.refsPerSection}: {form.refsPerSection ?? 1}</span>
                         </div>
                       </div>
                     ) : (
@@ -4857,6 +4961,21 @@ ${ref.year ? `年份：${ref.year}` : ''}
                             className="w-full border border-slate-500 rounded-lg px-2 py-1 text-center text-xs bg-slate-600 text-white"
                             onChange={(e) => setForm({ ...form, conclusionWords: parseInt(e.target.value) || 140 })}
                           />
+                        </div>
+                        
+                        <div>
+                          <label className="block text-xs font-medium text-slate-300 mb-1">{t.refsPerSection}</label>
+                          <select
+                            className="w-full border border-slate-500 rounded-lg px-2 py-1 text-xs focus:border-blue-400 focus:ring-blue-400 bg-slate-600 text-white"
+                            value={form.refsPerSection ?? 1}
+                            onChange={(e) => setForm({ ...form, refsPerSection: parseInt(e.target.value) || 1 })}
+                          >
+                            <option value={1}>{isUI_EN ? '1 per section' : '每段 1 篇'}</option>
+                            <option value={2}>{isUI_EN ? '2 per section' : '每段 2 篇'}</option>
+                            <option value={3}>{isUI_EN ? '3 per section' : '每段 3 篇'}</option>
+                            <option value={4}>{isUI_EN ? '4 per section' : '每段 4 篇'}</option>
+                            <option value={5}>{isUI_EN ? '5 per section' : '每段 5 篇'}</option>
+                          </select>
                         </div>
                         
                         <div className="text-center text-xs text-slate-300">
@@ -5018,6 +5137,13 @@ ${ref.year ? `年份：${ref.year}` : ''}
                     disabled={lockedTabs.final}
                   >
                     ✨ 人性化
+                  </button>
+                  <button
+                    onClick={handleOneClickComplete}
+                    disabled={isOneClickComplete || isGenerating || isGeneratingReview || isGeneratingRevision || isGeneratingHumanized}
+                    className="w-full bg-gradient-to-r from-rose-500 to-pink-600 text-white py-2.5 px-3 rounded-lg hover:from-rose-400 hover:to-pink-500 transition-all text-sm shadow-lg border border-rose-400 disabled:opacity-50 disabled:cursor-not-allowed font-bold flex items-center justify-center gap-2 mt-2"
+                  >
+                    {isOneClickComplete ? '🔄 執行中...' : '⚡ 一鍵完成'}
                   </button>
                 </div>
               </div>
@@ -5911,7 +6037,25 @@ ${ref.year ? `年份：${ref.year}` : ''}
                     <div key={point.id} className="p-4 bg-slate-700 rounded-lg border border-slate-600 mb-4">
                       {/* 段落标题與重點視窗 */}
                       <div className="mb-4">
-                        <h4 className="text-lg font-medium text-white mb-2">{point.id}. {point.title}</h4>
+                        <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                          <h4 className="text-lg font-medium text-white">{point.id}. {point.title}</h4>
+                          <button
+                            onClick={async () => {
+                              try {
+                                const keywords = await generateEnglishKeywordsFromParagraph(point);
+                                setSearchKeywords(prev => ({ ...prev, [`p-${point.id}`]: keywords }));
+                                await handleSearchReferences(keywords, point.id, false, undefined);
+                              } catch (e: any) {
+                                console.error('段落搜尋失敗:', e);
+                                alert(e?.message || '搜尋失敗');
+                              }
+                            }}
+                            disabled={isSearching}
+                            className="px-3 py-1 bg-cyan-600 text-white text-sm rounded hover:bg-cyan-500 transition-colors disabled:opacity-50"
+                          >
+                            {isSearching ? '搜尋中...' : (isUI_EN ? 'Search refs for this section' : '為本段搜尋文獻')}
+                          </button>
+                        </div>
                         <div className="rounded-lg border border-slate-600 bg-slate-900/50 p-4 shadow-inner">
                           <p className="text-slate-100 text-sm leading-relaxed mb-3">{point.content}</p>
                           
@@ -6022,14 +6166,14 @@ ${ref.year ? `年份：${ref.year}` : ''}
                                       </button>
                                     </div>
                                   )}
-                                  {/* 操作按鈕 */}
+                                  {/* 操作按鈕 — 統一風格：邊框 + 文字 */}
                                   <div className="flex flex-wrap gap-1.5 mt-2">
                                     {ref.url && (
                                       <a 
                                         href={ref.url} 
                                         target="_blank" 
                                         rel="noopener noreferrer"
-                                        className="px-2 py-0.5 bg-blue-600 text-white text-[10px] rounded hover:bg-blue-700 transition-colors"
+                                        className="px-2 py-0.5 border border-slate-500 text-slate-300 bg-slate-700/60 text-[10px] rounded hover:bg-slate-600 hover:border-slate-400 transition-colors"
                                       >
                                         訪問網站
                                       </a>
@@ -6070,11 +6214,11 @@ ${ref.year ? `年份：${ref.year}` : ''}
 
                                         alert('这笔文献未提供可导向的下载连结。');
                                       }}
-                                      className="px-2 py-0.5 bg-green-600 text-white text-[10px] rounded hover:bg-green-700 transition-colors"
+                                      className="px-2 py-0.5 border border-slate-500 text-slate-300 bg-slate-700/60 text-[10px] rounded hover:bg-slate-600 hover:border-slate-400 transition-colors"
                                     >
                                       下載文獻
                                     </button>
-                                    <label className="px-2 py-0.5 bg-purple-600 text-white text-[10px] rounded hover:bg-purple-700 transition-colors cursor-pointer">
+                                    <label className="px-2 py-0.5 border border-slate-500 text-slate-300 bg-slate-700/60 text-[10px] rounded hover:bg-slate-600 hover:border-slate-400 transition-colors cursor-pointer">
                                       上傳PDF
                                       <input
                                         type="file"
@@ -6661,8 +6805,8 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                                           disabled={Boolean((ref as any).isSelected)}
                                           className={`px-3 py-1 text-xs rounded transition-colors ${
                                             (ref as any).isSelected
-                                              ? 'bg-slate-500 text-white cursor-not-allowed'
-                                              : 'bg-purple-600 text-white hover:bg-purple-500'
+                                              ? 'bg-slate-500 text-white cursor-not-allowed border border-slate-500'
+                                              : 'border border-slate-500 text-slate-300 bg-slate-700/60 hover:bg-slate-600 hover:border-slate-400'
                                           }`}
                                         >
                                           {(ref as any).isSelected ? '已添加' : '添加文献'}
@@ -7464,7 +7608,7 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                           </div>
                         </div>
                         
-                        {/* ✅ 人性化引擎選擇 — 分段式按鈕 */}
+                        {/* ✅ 人性化引擎選擇 — 分段式按鈕，選中時明顯變色 */}
                         <div className="mt-3 p-3 bg-slate-800/50 rounded-lg border border-slate-600">
                           <div className="text-xs font-medium text-slate-400 mb-2">{isUI_EN ? 'Humanization engine' : '人性化引擎'}</div>
                           <div className="flex flex-wrap gap-2">
@@ -7472,7 +7616,7 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                               onClick={() => setHumanizeEngine('auto')}
                               className={`flex-1 min-w-[100px] px-3 py-2 text-sm font-medium rounded-lg border-2 transition-all ${
                                 humanizeEngine === 'auto'
-                                  ? 'border-emerald-500 bg-emerald-600/20 text-emerald-300'
+                                  ? 'border-emerald-400 bg-emerald-600 text-white shadow-lg shadow-emerald-500/30 ring-2 ring-emerald-400/50'
                                   : 'border-slate-600 bg-slate-700/50 text-slate-300 hover:border-slate-500 hover:bg-slate-600/50'
                               }`}
                               title={isUI_EN ? 'Auto: Undetectable.AI if configured, else LLM' : '自動：有設定 Undetectable.AI 則用，否則用 LLM'}
@@ -7487,7 +7631,7 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                               disabled={!hasUndetectable}
                               className={`flex-1 min-w-[100px] px-3 py-2 text-sm font-medium rounded-lg border-2 transition-all ${
                                 humanizeEngine === 'undetectable'
-                                  ? 'border-emerald-500 bg-emerald-600/20 text-emerald-300'
+                                  ? 'border-emerald-400 bg-emerald-600 text-white shadow-lg shadow-emerald-500/30 ring-2 ring-emerald-400/50'
                                   : hasUndetectable
                                     ? 'border-slate-600 bg-slate-700/50 text-slate-300 hover:border-slate-500 hover:bg-slate-600/50'
                                     : 'border-slate-700 bg-slate-800/50 text-slate-500 cursor-not-allowed opacity-60'
@@ -7503,7 +7647,7 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                               onClick={() => setHumanizeEngine('llm')}
                               className={`flex-1 min-w-[100px] px-3 py-2 text-sm font-medium rounded-lg border-2 transition-all ${
                                 humanizeEngine === 'llm'
-                                  ? 'border-emerald-500 bg-emerald-600/20 text-emerald-300'
+                                  ? 'border-emerald-400 bg-emerald-600 text-white shadow-lg shadow-emerald-500/30 ring-2 ring-emerald-400/50'
                                   : 'border-slate-600 bg-slate-700/50 text-slate-300 hover:border-slate-500 hover:bg-slate-600/50'
                               }`}
                               title={isUI_EN ? 'LLM: Academic humanization prompt' : 'LLM：學術人性化 prompt'}

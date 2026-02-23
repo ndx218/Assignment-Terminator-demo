@@ -15,18 +15,35 @@ export default async function handler(
     return res.status(405).json({ success: false, error: 'Only POST allowed' });
   }
 
-  const { bulletPoint, pointId, outlineTitle } = req.body;
+  const { bulletPoint, paragraphContent, pointId, outlineTitle } = req.body;
 
-  if (!bulletPoint) {
-    return res.status(400).json({ success: false, error: 'bulletPoint is required' });
+  const inputText = paragraphContent || bulletPoint;
+  if (!inputText) {
+    return res.status(400).json({ success: false, error: 'bulletPoint or paragraphContent is required' });
   }
 
   try {
-    console.log(`开始生成关键词 - bulletPoint: "${bulletPoint}", pointId: ${pointId}`);
+    console.log(`开始生成关键词 - ${paragraphContent ? 'paragraphContent' : 'bulletPoint'}: "${inputText.slice(0, 100)}...", pointId: ${pointId}`);
 
-    const prompt = `You are an academic research assistant. Generate search keywords for academic databases (like Google Scholar, Semantic Scholar, Crossref, etc.) based on the following bullet point.
+    const prompt = paragraphContent
+      ? `You are an academic research assistant. Generate search keywords for academic databases (like Google Scholar, Semantic Scholar, Crossref, etc.) based on the following FULL PARAGRAPH content.
 
-Bullet point content: "${bulletPoint}"
+Full paragraph content: "${inputText}"
+${outlineTitle ? `Paper title context: "${outlineTitle}"` : ''}
+${pointId ? `Section ID: ${pointId}` : ''}
+
+Requirements:
+1. Generate EXACTLY 3 English keyword phrases suitable for academic search, based on the ENTIRE paragraph (not just one bullet)
+2. Each phrase should be 2-4 words and wrapped in double quotes
+3. Multi-word phrases must be kept together as a single unit
+4. Phrases should capture the main themes and concepts of the whole paragraph
+5. Return ONLY the keywords in this format: "keyword1" "keyword2" "keyword3"
+6. Do not include any explanations or additional text
+
+Now generate keywords for this paragraph:`
+      : `You are an academic research assistant. Generate search keywords for academic databases (like Google Scholar, Semantic Scholar, Crossref, etc.) based on the following bullet point.
+
+Bullet point content: "${inputText}"
 ${outlineTitle ? `Paper title context: "${outlineTitle}"` : ''}
 ${pointId ? `Section ID: ${pointId}` : ''}
 
@@ -45,7 +62,7 @@ Example output format:
 
 Important: Each phrase must be a meaningful unit. If the bullet point mentions "website structure", it should be ONE keyword "website structure", NOT two separate keywords "website" and "structure".
 
-Now generate keywords for: "${bulletPoint}"`;
+Now generate keywords for: "${inputText}"`;
 
     const keywords = await callLLM(
       [{ role: 'user', content: prompt }],
@@ -106,7 +123,7 @@ Now generate keywords for: "${bulletPoint}"`;
           }
         }
       } else {
-        finalKeywords = `"${bulletPoint}"`;
+        finalKeywords = `"${inputText.slice(0, 50)}"`;
       }
     }
 
@@ -114,7 +131,7 @@ Now generate keywords for: "${bulletPoint}"`;
 
     return res.status(200).json({
       success: true,
-      keywords: finalKeywords || `"${bulletPoint}"`
+      keywords: finalKeywords || `"${inputText.slice(0, 50)}"`
     });
 
   } catch (error: any) {

@@ -133,10 +133,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         engine: 'undetectable',
       });
     } catch (err: any) {
-      console.error('[undetectable] Undetectable.AI API failed:', err?.message);
-      return res.status(500).json({
-        error: err?.message || (lang === 'zh' ? '人性化失敗' : 'Humanization failed'),
-      });
+      const msg = String(err?.message ?? '');
+      console.error('[undetectable] Undetectable.AI API failed:', msg);
+      // ✅ 餘額不足時自動 fallback 到 LLM，不報錯
+      if (/餘額不足|Insufficient credits/i.test(msg)) {
+        console.log('[undetectable] Undetectable.AI 餘額不足，改用 LLM');
+        // 繼續執行下方 LLM 流程
+      } else {
+        return res.status(500).json({
+          error: msg || (lang === 'zh' ? '人性化失敗' : 'Humanization failed'),
+        });
+      }
     }
   }
 
