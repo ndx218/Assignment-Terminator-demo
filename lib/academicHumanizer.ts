@@ -17,14 +17,43 @@
 /** AI 模板句開頭 — 需替換為直接論述（In conclusion, Firstly/Secondly 可保留） */
 export const AI_TEMPLATE_PHRASES = [
   'In recent years',
+  'In recent times',
   'Since the dawn of time',
   'This essay will',
+  'This essay posits',
   'This paper aims to',
+  'This paper posits',
   'There has been growing concern',
   'To conclude',
   'It is important to note',
   'It should be noted',
 ];
+
+/** 替換對：AI 模板 → 學術替代（只替換開頭短語，保留後文） */
+const AI_TEMPLATE_REPLACEMENTS: [RegExp | string, string][] = [
+  [/\bIn recent years\b,?\s*/gi, 'Historically, '],
+  [/\bIn recent times\b,?\s*/gi, 'Historically, '],
+  [/\bIn recent decades\b,?\s*/gi, 'Across recent decades, '],
+  [/\bSince the dawn of time\b,?\s*/gi, 'Historically, '],
+  [/\bThis essay will (?:discuss|explore|examine|analyze) /gi, 'The following explores '],
+  [/\bThis essay posits (?:that )?/gi, 'The central argument is that '],
+  [/\bThis paper aims to (?:discuss|explore|examine) /gi, 'The following examines '],
+  [/\bThis paper posits (?:that )?/gi, 'The central argument is that '],
+  [/\bThere has been growing concern (?:about|over|that) /gi, 'The field has increasingly attended to '],
+];
+
+/**
+ * 移除 AI 模板句，確保人性化前後皆有清理（Undetectable.AI 不依賴 prompt）。
+ * 對 Undetectable.AI 與 LLM 皆適用。
+ */
+export function stripAiTemplatePhrases(text: string): string {
+  if (!text || !text.trim()) return text;
+  let out = text;
+  for (const [pattern, replacement] of AI_TEMPLATE_REPLACEMENTS) {
+    out = out.replace(pattern, replacement);
+  }
+  return out.replace(/\s{2,}/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+}
 
 /** Epistemic hedging — 每 150–200 words 插入 2–3 個 */
 export const HEDGING_BANK = [

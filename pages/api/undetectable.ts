@@ -4,6 +4,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { callLLM, mapMode } from '@/lib/ai';
 import { deductCredits } from '@/lib/credits';
 import { prisma } from '@/lib/prisma';
+import { stripAiTemplatePhrases } from '@/lib/academicHumanizer';
 
 type ResBody =
   | { result?: string; humanized?: string; resultZh?: string; humanizedZh?: string; remainingCredits?: number; error?: string; engine?: 'undetectable' | 'llm' }
@@ -81,14 +82,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     generateBoth = false, // ✅ 是否同时生成中英文版本
     wordCount, // ✅ 目標字數（人性化時勿縮短）
     humanizeEngine = 'auto', // ✅ 'undetectable' | 'llm' | 'auto'：由前端選擇
+    rehumanize = false, // ✅ 重新人性化：要求更大幅度改動，避免輸出幾乎相同
   } = (req.body ?? {}) as Record<string, any>;
 
   if (!text || typeof text !== 'string' || !text.trim()) {
     return res.status(400).json({ error: '請提供要優化的文本' });
   }
 
+  // ✅ 預處理：移除 AI 模板句（In recent times, This essay posits 等），Undetectable.AI 不依賴 prompt
+  const inputText = stripAiTemplatePhrases(text.trim());
+
   const lang: 'zh' | 'en' =
-    language === 'zh' || language === 'en' ? language : detectLang(text);
+    language === 'zh' || language === 'en' ? language : detectLang(inputText);
 
   const udApiKey = process.env.UNDETECTABLE_AI_API_KEY?.trim();
   const useUndetectable = humanizeEngine === 'undetectable'
@@ -104,7 +109,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   // ✅ 若選擇使用 Undetectable.AI 且已設定 API Key
   if (useUndetectable && udApiKey) {
     try {
-      const result = await humanizeViaUndetectableAI(text.trim(), udApiKey, lang);
+      let result = await humanizeViaUndetectableAI(inputText, udApiKey, lang);
+      result = stripAiTemplatePhrases(result); // 後處理：Undetectable.AI 可能保留模板句
       let resultZh: string | undefined;
       if (generateBoth && lang === 'en' && result) {
         try {
@@ -228,10 +234,16 @@ Output: Directly output the rewritten text. No explanations or annotations.`;
       : `\n\n【IMPORTANT】Target ~${targetWc} words. Do NOT shorten. If input is shorter, expand to ~${targetWc} words.`)
     : '';
 
+  const rehumanizeHint = rehumanize
+    ? (lang === 'zh'
+      ? '\n\n【重要】這是重新人性化，必須對文本做「明顯改動」：改寫句式、調整結構、增加 hedging，不可僅改動少數詞彙。輸出必須與原文有明顯差異。'
+      : '\n\n【CRITICAL】This is RE-HUMANIZATION. You MUST make SUBSTANTIAL changes: rewrite sentences, alter structure, add hedging. Do NOT return nearly identical text. Output must be visibly different from the input.')
+    : '';
+
   // 构建用户提示
   const userPrompt = lang === 'zh'
-    ? `請依學術人性化引擎規則改寫以下文本。目標：控制性統計不規則 + 智識真實性（非追求 0%）。保持論點與語意一致。${lengthInstruction}${avoidPatterns}\n\n【原文】\n${text}`
-    : `Rewrite the following text using the academic humanization engine rules. Target: controlled statistical irregularity + intellectual authenticity (not 0%). Preserve arguments and meaning.${lengthInstruction}${avoidPatterns}\n\n【Original】\n${text}`;
+    ? `請依學術人性化引擎規則改寫以下文本。目標：控制性統計不規則 + 智識真實性（非追求 0%）。保持論點與語意一致。嚴禁使用「近年來」「本文將」「本文認為」等模板句。${lengthInstruction}${avoidPatterns}${rehumanizeHint}\n\n【原文】\n${inputText}`
+    : `Rewrite the following text using the academic humanization engine rules. Target: controlled statistical irregularity + intellectual authenticity (not 0%). Preserve arguments and meaning. NEVER use "In recent years/times", "This essay will/posits", "This paper aims to/posits".${lengthInstruction}${avoidPatterns}${rehumanizeHint}\n\n【Original】\n${inputText}`;
 
   try {
     const llmOpts = mapMode('review', mode);
@@ -248,7 +260,7 @@ Output: Directly output the rewritten text. No explanations or annotations.`;
       }
     );
 
-    const result = humanized || (lang === 'zh' ? '⚠️ 人性化處理失敗' : '⚠️ Humanization failed');
+    let result = stripAiTemplatePhrases(humanized || '') || (lang === 'zh' ? '⚠️ 人性化處理失敗' : '⚠️ Humanization failed');
     
     let resultZh: string | undefined;
     
@@ -303,7 +315,7 @@ Output: Directly output the rewritten text. No explanations or annotations.`;
             referer: process.env.NEXT_PUBLIC_APP_URL,
           }
         );
-        const result2 = humanized2 || (lang === 'zh' ? '⚠️ 人性化處理失敗' : '⚠️ Humanization failed');
+        const result2 = stripAiTemplatePhrases(humanized2 || '') || (lang === 'zh' ? '⚠️ 人性化處理失敗' : '⚠️ Humanization failed');
         return res.status(200).json({
           result: result2,
           humanized: result2,

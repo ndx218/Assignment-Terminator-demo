@@ -2704,19 +2704,23 @@ Output only the bullet point content, without any labels or numbering.`
   ) => {
     if (type === 'section' && sectionId) {
       // 分段生成：针对单个段落
-      // 优先使用修订稿，如果没有则使用草稿
+      // ✅ 重新人性化時優先使用「當前人性化結果」作為輸入，否則用修訂稿/草稿（否則每次都從同一來源改寫，輸出可能幾乎相同）
+      const humanizedSection = humanizedSections[sectionId];
       const revisionSection = revisionSections[sectionId];
       const draftSection = draftSections[sectionId];
       
-      // ✅ 获取源文本（支持新格式 {en, zh} 和旧格式 string）
       let sourceText = '';
-      if (revisionSection) {
+      if (humanizedSection && (humanizedSection.en || humanizedSection.zh)) {
+        sourceText = form.language === '英文' ? (humanizedSection.en || humanizedSection.zh || '') : (humanizedSection.zh || humanizedSection.en || '');
+      }
+      if (!sourceText?.trim() && revisionSection) {
         if (typeof revisionSection === 'string') {
           sourceText = revisionSection;
         } else if (typeof revisionSection === 'object') {
           sourceText = revisionSection.en || revisionSection.zh || '';
         }
-      } else if (draftSection) {
+      }
+      if (!sourceText?.trim() && draftSection) {
         if (typeof draftSection === 'string') {
           sourceText = draftSection;
         } else if (typeof draftSection === 'object' && draftSection.en) {
@@ -2745,6 +2749,7 @@ Output only the bullet point content, without any labels or numbering.`
               generateBoth: true,
               wordCount: targetWordCount, // ✅ 避免人性化時縮短（尤其結論）
               humanizeEngine: engineOverride ?? humanizeEngine, // ✅ 重試時可切換引擎
+              rehumanize: !!humanizedSection, // ✅ 重新人性化時要求更大幅度改動
             }),
         });
 
@@ -2818,19 +2823,23 @@ Output only the bullet point content, without any labels or numbering.`
           const sectionId = sectionsToGenerate[i];
           setCurrentGeneratingHumanizedSection(sectionId);
           
-          // 优先使用修订稿，如果没有则使用草稿
+          // ✅ 重新人性化時優先使用當前人性化結果，否則用修訂稿/草稿
+          const humanizedSection = humanizedSections[sectionId];
           const revisionSection = revisionSections[sectionId];
           const draftSection = draftSections[sectionId];
           
-          // ✅ 获取源文本（支持新格式 {en, zh} 和旧格式 string）
           let sourceText = '';
-          if (revisionSection) {
+          if (humanizedSection && (humanizedSection.en || humanizedSection.zh)) {
+            sourceText = form.language === '英文' ? (humanizedSection.en || humanizedSection.zh || '') : (humanizedSection.zh || humanizedSection.en || '');
+          }
+          if (!sourceText?.trim() && revisionSection) {
             if (typeof revisionSection === 'string') {
               sourceText = revisionSection;
             } else if (typeof revisionSection === 'object') {
               sourceText = revisionSection.en || revisionSection.zh || '';
             }
-          } else if (draftSection) {
+          }
+          if (!sourceText?.trim() && draftSection) {
             if (typeof draftSection === 'string') {
               sourceText = draftSection;
             } else if (typeof draftSection === 'object' && draftSection.en) {
@@ -2859,6 +2868,7 @@ Output only the bullet point content, without any labels or numbering.`
               generateBoth: true,
               wordCount: targetWordCount, // ✅ 避免人性化時縮短（尤其結論）
               humanizeEngine: engineOverride ?? humanizeEngine, // ✅ 重試時可切換引擎
+              rehumanize: !!humanizedSection, // ✅ 重新人性化時要求更大幅度改動
             }),
           });
 
@@ -7454,56 +7464,56 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                           </div>
                         </div>
                         
-                        {/* ✅ 人性化引擎選擇 */}
-                        <div className="mt-3 flex flex-wrap items-center gap-2">
-                          <span className="text-xs text-slate-400">{isUI_EN ? 'Engine:' : '引擎：'}</span>
-                          <div className="flex gap-1">
+                        {/* ✅ 人性化引擎選擇 — 分段式按鈕 */}
+                        <div className="mt-3 p-3 bg-slate-800/50 rounded-lg border border-slate-600">
+                          <div className="text-xs font-medium text-slate-400 mb-2">{isUI_EN ? 'Humanization engine' : '人性化引擎'}</div>
+                          <div className="flex flex-wrap gap-2">
                             <button
                               onClick={() => setHumanizeEngine('auto')}
-                              className={`px-2 py-1 text-xs rounded transition-colors ${
+                              className={`flex-1 min-w-[100px] px-3 py-2 text-sm font-medium rounded-lg border-2 transition-all ${
                                 humanizeEngine === 'auto'
-                                  ? 'bg-emerald-600 text-white'
-                                  : 'bg-slate-600 text-slate-300 hover:bg-slate-500'
+                                  ? 'border-emerald-500 bg-emerald-600/20 text-emerald-300'
+                                  : 'border-slate-600 bg-slate-700/50 text-slate-300 hover:border-slate-500 hover:bg-slate-600/50'
                               }`}
                               title={isUI_EN ? 'Auto: Undetectable.AI if configured, else LLM' : '自動：有設定 Undetectable.AI 則用，否則用 LLM'}
                             >
-                              {isUI_EN ? 'Auto' : '自動'}
+                              <span className="block">🔄 {isUI_EN ? 'Auto' : '自動'}</span>
+                              <span className="block text-xs opacity-80 mt-0.5">
+                                {hasUndetectable ? 'Undetectable.AI' : 'LLM'}
+                              </span>
                             </button>
                             <button
                               onClick={() => setHumanizeEngine('undetectable')}
                               disabled={!hasUndetectable}
-                              className={`px-2 py-1 text-xs rounded transition-colors ${
+                              className={`flex-1 min-w-[100px] px-3 py-2 text-sm font-medium rounded-lg border-2 transition-all ${
                                 humanizeEngine === 'undetectable'
-                                  ? 'bg-emerald-600 text-white'
+                                  ? 'border-emerald-500 bg-emerald-600/20 text-emerald-300'
                                   : hasUndetectable
-                                    ? 'bg-slate-600 text-slate-300 hover:bg-slate-500'
-                                    : 'bg-slate-700 text-slate-500 cursor-not-allowed'
+                                    ? 'border-slate-600 bg-slate-700/50 text-slate-300 hover:border-slate-500 hover:bg-slate-600/50'
+                                    : 'border-slate-700 bg-slate-800/50 text-slate-500 cursor-not-allowed opacity-60'
                               }`}
                               title={hasUndetectable ? 'Undetectable.AI 官方 API' : (isUI_EN ? 'Undetectable.AI not configured' : 'Undetectable.AI 未設定')}
                             >
-                              Undetectable.AI
+                              <span className="block">🛡️ Undetectable.AI</span>
+                              <span className="block text-xs opacity-80 mt-0.5">
+                                {hasUndetectable ? (isUI_EN ? 'Official API' : '官方 API') : (isUI_EN ? 'Not configured' : '未設定')}
+                              </span>
                             </button>
                             <button
                               onClick={() => setHumanizeEngine('llm')}
-                              className={`px-2 py-1 text-xs rounded transition-colors ${
+                              className={`flex-1 min-w-[100px] px-3 py-2 text-sm font-medium rounded-lg border-2 transition-all ${
                                 humanizeEngine === 'llm'
-                                  ? 'bg-emerald-600 text-white'
-                                  : 'bg-slate-600 text-slate-300 hover:bg-slate-500'
+                                  ? 'border-emerald-500 bg-emerald-600/20 text-emerald-300'
+                                  : 'border-slate-600 bg-slate-700/50 text-slate-300 hover:border-slate-500 hover:bg-slate-600/50'
                               }`}
-                              title="LLM 人性化"
+                              title={isUI_EN ? 'LLM: Academic humanization prompt' : 'LLM：學術人性化 prompt'}
                             >
-                              LLM
+                              <span className="block">🤖 LLM</span>
+                              <span className="block text-xs opacity-80 mt-0.5">
+                                {isUI_EN ? 'Academic prompt' : '學術 prompt'}
+                              </span>
                             </button>
                           </div>
-                          <span className="text-xs text-slate-500">
-                            {humanizeEngine === 'auto'
-                              ? (hasUndetectable ? `(${isUI_EN ? 'Using' : '使用'} Undetectable.AI)` : hasUndetectable === false ? `(${isUI_EN ? 'Using' : '使用'} LLM)` : '')
-                              : humanizeEngine === 'undetectable'
-                                ? `(${isUI_EN ? 'Using' : '使用'} Undetectable.AI)`
-                                : humanizeEngine === 'llm'
-                                  ? `(${isUI_EN ? 'Using' : '使用'} LLM)`
-                                  : ''}
-                          </span>
                         </div>
                         
                         <p className="text-xs text-slate-400 mt-2">
