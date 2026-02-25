@@ -2993,46 +2993,48 @@ Output only the bullet point content, without any labels or numbering.`
     oneClickSilentRef.current = true;
     const totalSteps = 6;
     try {
-      // 1. 若無大綱則先生成
+      // 1. 一律重新生成大綱（依當前論文標題），避免使用舊主題
       setOneClickProgress({ step: '大綱', stepIndex: 0, totalSteps, detail: '生成中...' });
-      if (outlinePoints.length === 0) {
-        setActiveTab('outline');
-        setIsGenerating(true);
-        const outlineRes = await fetch('/api/outline', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            title: form.title,
-            wordCount: form.totalWords,
-            language: form.language,
-            tone: form.tone,
-            detail: form.detail,
-            reference: '',
-            rubric: form.rubric,
-            paragraph: form.bodyCount || 3,
-            mode: selectedModel,
-            paragraphPlan: {
-              intro: form.introWords || 140,
-              bodyCount: form.bodyCount || 3,
-              body: form.bodyWords || [240, 240, 240],
-              bodyContent: form.bodyContent || ['', '', ''],
-              conclusion: form.conclusionWords || 140
-            }
-          }),
-        });
-        setIsGenerating(false);
-        if (!outlineRes.ok) {
-          const err = await outlineRes.json();
-          throw new Error(err?.error || '大綱生成失敗');
-        }
-        const outlineData = await outlineRes.json();
-        syncCreditsFromResponse(outlineData);
-        if (outlineData.outline) {
-          const parsed = parseOutlineToPoints(outlineData.outline);
-          setOutlinePoints(normalizeOutlinePoints(parsed));
-          setGeneratedContent('');
-          setGeneratedContentZh('');
-        }
+      setActiveTab('outline');
+      setIsGenerating(true);
+      const outlineRes = await fetch('/api/outline', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: form.title,
+          wordCount: form.totalWords,
+          language: form.language,
+          tone: form.tone,
+          detail: form.detail,
+          reference: '',
+          rubric: form.rubric,
+          paragraph: form.bodyCount || 3,
+          mode: selectedModel,
+          paragraphPlan: {
+            intro: form.introWords || 140,
+            bodyCount: form.bodyCount || 3,
+            body: form.bodyWords || [240, 240, 240],
+            bodyContent: form.bodyContent || ['', '', ''],
+            conclusion: form.conclusionWords || 140
+          }
+        }),
+      });
+      setIsGenerating(false);
+      if (!outlineRes.ok) {
+        const err = await outlineRes.json();
+        throw new Error(err?.error || '大綱生成失敗');
+      }
+      const outlineData = await outlineRes.json();
+      syncCreditsFromResponse(outlineData);
+      if (outlineData.outline) {
+        const parsed = parseOutlineToPoints(outlineData.outline);
+        setOutlinePoints(normalizeOutlinePoints(parsed));
+        setGeneratedContent('');
+        setGeneratedContentZh('');
+        setDraftSections({});
+        setReviewSections({});
+        setRevisionSections({});
+        setHumanizedSections({});
       }
       setOneClickProgress({ step: '大綱', stepIndex: 0, totalSteps, detail: '完成' });
       
