@@ -165,6 +165,11 @@ export default function HomePage() {
   const [hasUndetectable, setHasUndetectable] = useState<boolean | null>(null); // ✅ Undetectable.AI 是否可用
   const [regeneratingBullet, setRegeneratingBullet] = useState<{pointId: number, bulletIndex: number, category: 'Hook' | 'Background' | 'Thesis'} | null>(null);
   
+  const oneClickSilentRef = useRef(false);
+  const [oneClickProgress, setOneClickProgress] = useState<{ step: string; stepIndex: number; totalSteps: number; detail?: string } | null>(null);
+  const [oneClickRefConfirmOpen, setOneClickRefConfirmOpen] = useState(false);
+  const oneClickRefConfirmResolveRef = useRef<((v: { action: 'search' | 'skip'; refsPerSection?: number }) => void) | null>(null);
+  
   const [outlinePoints, setOutlinePoints] = useState<OutlinePoint[]>([]);
   const [searchKeywords, setSearchKeywords] = useState<{[key: string]: string}>({});
   const [selectedBulletPoint, setSelectedBulletPoint] = useState<string | null>(null);
@@ -1359,7 +1364,7 @@ ${enhancedKeyword}的发展方向和潜在突破`;
     }
   };
 
-  const handleGenerateDraft = async (type: 'full' | 'section', sectionId?: number) => {
+  const handleGenerateDraft = async (type: 'full' | 'section', sectionId?: number, skipRefConfirm?: boolean) => {
     if (!form.title.trim()) {
       alert('請先輸入論文標題');
       return;
@@ -1371,7 +1376,7 @@ ${enhancedKeyword}的发展方向和潜在突破`;
     }
 
     const allReferences = outlinePoints.flatMap(point => point.references);
-    if (allReferences.length === 0) {
+    if (allReferences.length === 0 && !skipRefConfirm) {
       const confirmGenerate = confirm('⚠️ 警告：您还没有添加任何参考文献。\n\n建议先添加参考文献以获得更好的生成效果。\n\n是否仍要继续生成？');
       if (!confirmGenerate) {
         return;
@@ -1724,7 +1729,7 @@ ${sectionReferenceText}
           ...newDraftSections
         }));
         
-        alert('✅ 完整草稿生成成功！所有段落内容已自动填充到相应区域。');
+        if (!oneClickSilentRef.current) alert('✅ 完整草稿生成成功！所有段落内容已自动填充到相应区域。');
       } else if (type === 'section' && sectionId) {
         // 清理可能的错误信息前缀
         let cleanedDraftEn = data.draft || '';
@@ -2321,7 +2326,7 @@ Output only the bullet point content, without any labels or numbering.`
           });
         }
         
-        alert(`✅ 所有段落評論生成完成！（共${sectionsToGenerate.length}段）`);
+        if (!oneClickSilentRef.current) alert(`✅ 所有段落評論生成完成！（共${sectionsToGenerate.length}段）`);
       } catch (error) {
         console.error('生成教師評論時發生錯誤:', error);
         alert(error instanceof Error ? error.message : '生成失敗，請稍後再試');
@@ -2687,7 +2692,7 @@ Output only the bullet point content, without any labels or numbering.`
           }
         }
         
-        alert(`✅ 所有段落修訂稿生成完成！（共${sectionsToGenerate.length}段）`);
+        if (!oneClickSilentRef.current) alert(`✅ 所有段落修訂稿生成完成！（共${sectionsToGenerate.length}段）`);
       } catch (error) {
         console.error('生成修訂稿時發生錯誤:', error);
         alert(error instanceof Error ? error.message : '生成失敗，請稍後再試');
@@ -2700,11 +2705,12 @@ Output only the bullet point content, without any labels or numbering.`
 
   // ✅ 生成人性化文本（支持分段生成和一键生成）
   // engineOverride: 重試時可切換引擎（Undetectable.AI ↔ LLM）以降低 AI%
+  // 分段生成時回傳產出的文本，供重試後立即 AI 檢測使用（避免讀取過期 state）
   const handleGenerateHumanized = async (
     type: 'full' | 'section' = 'full',
     sectionId?: number,
     engineOverride?: 'auto' | 'undetectable' | 'llm'
-  ) => {
+  ): Promise<string | void> => {
     if (type === 'section' && sectionId) {
       // 分段生成：针对单个段落
       // ✅ 重新人性化時優先使用「當前人性化結果」作為輸入，否則用修訂稿/草稿（否則每次都從同一來源改寫，輸出可能幾乎相同）
@@ -2783,6 +2789,7 @@ Output only the bullet point content, without any labels or numbering.`
         humanizedEn = extractSingleSection(humanizedEn, sectionId, outlinePoints) || humanizedEn;
         humanizedZh = extractSingleSection(humanizedZh, sectionId, outlinePoints) || humanizedZh;
         
+        const sectionDisplayText = (form.language === '英文' ? (humanizedEn || humanizedZh) : (humanizedZh || humanizedEn)) || '';
         setHumanizedSections(prev => ({
           ...prev,
           [sectionId]: {
@@ -2791,9 +2798,11 @@ Output only the bullet point content, without any labels or numbering.`
           }
         }));
         alert(`✅ 第${sectionId}段人性化完成！`);
+        return sectionDisplayText;
       } catch (error) {
         console.error('生成人性化文本時發生錯誤:', error);
         alert(error instanceof Error ? error.message : '生成失敗，請稍後再試');
+        return '';
       } finally {
         setIsGeneratingHumanized(false);
         setCurrentGeneratingHumanizedSection(null);
@@ -2914,6 +2923,21 @@ Output only the bullet point content, without any labels or numbering.`
             }
           }));
           
+          // ✅ 每段完成後立即自動 AI 檢測（不需手動按鈕）
+          if (displayText.length >= 50) {
+            try {
+              const checkRes = await fetch('/api/ai-check', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: displayText }),
+              });
+              const checkData = await checkRes.json();
+              const pct = checkData.aiPercent ?? 0;
+              setAiCheckResults((prev) => ({ ...prev, [sectionId]: pct }));
+              setAiCheckSource(checkData.source ?? null);
+            } catch (_) {}
+          }
+          
           // 每次生成之间有短暂延迟，避免API限流
           if (i < sectionsToGenerate.length - 1) {
             await new Promise(resolve => setTimeout(resolve, 500));
@@ -2946,7 +2970,7 @@ Output only the bullet point content, without any labels or numbering.`
           await handleAutoRetryHumanization(sid);
         }
         
-        alert(`✅ 所有段落人性化完成！（共${sectionsToGenerate.length}段）`);
+        if (!oneClickSilentRef.current) alert(`✅ 所有段落人性化完成！（共${sectionsToGenerate.length}段）`);
       } catch (error) {
         console.error('生成人性化文本時發生錯誤:', error);
         alert(error instanceof Error ? error.message : '生成失敗，請稍後再試');
@@ -2957,16 +2981,20 @@ Output only the bullet point content, without any labels or numbering.`
     }
   };
 
-  // ✅ 一鍵完成：大綱 → 草稿 → 教師評論 → 修訂稿 → 人性化
+  // ✅ 一鍵完成：大綱 → [文獻搜尋] → 草稿 → 教師評論 → 修訂稿 → 人性化
   const [isOneClickComplete, setIsOneClickComplete] = useState(false);
+  const [oneClickRefConfirmRefsPer, setOneClickRefConfirmRefsPer] = useState(1);
   const handleOneClickComplete = async () => {
     if (!form.title.trim()) {
       alert('請先輸入論文標題');
       return;
     }
     setIsOneClickComplete(true);
+    oneClickSilentRef.current = true;
+    const totalSteps = 6;
     try {
       // 1. 若無大綱則先生成
+      setOneClickProgress({ step: '大綱', stepIndex: 0, totalSteps, detail: '生成中...' });
       if (outlinePoints.length === 0) {
         setActiveTab('outline');
         setIsGenerating(true);
@@ -3006,24 +3034,67 @@ Output only the bullet point content, without any labels or numbering.`
           setGeneratedContentZh('');
         }
       }
-      // 2. 草稿
+      setOneClickProgress({ step: '大綱', stepIndex: 0, totalSteps, detail: '完成' });
+      
+      // 2. 無文獻時：確認每段需要多少文獻，或略過
+      const allRefs = outlinePoints.flatMap(p => p.references);
+      if (allRefs.length === 0) {
+        setOneClickProgress({ step: '確認文獻', stepIndex: 1, totalSteps, detail: '等待選擇...' });
+        const choice = await new Promise<{ action: 'search' | 'skip'; refsPerSection?: number }>(resolve => {
+          oneClickRefConfirmResolveRef.current = resolve;
+          setOneClickRefConfirmOpen(true);
+        });
+        setOneClickRefConfirmOpen(false);
+        oneClickRefConfirmResolveRef.current = null;
+        if (choice.action === 'search' && (choice.refsPerSection ?? 0) > 0) {
+          setOneClickProgress({ step: '文獻搜尋', stepIndex: 1, totalSteps, detail: '為各段落搜尋中...' });
+          for (const point of outlinePoints) {
+            if (point.id === 1 && (point.title.includes('引言') || point.title.toLowerCase().includes('introduction'))) continue;
+            try {
+              const keywords = await generateEnglishKeywordsFromParagraph(point);
+              setForm(prev => ({ ...prev, refsPerSection: choice.refsPerSection ?? 1 }));
+              await handleSearchReferences(keywords, point.id, false, undefined, true);
+              await new Promise((r) => setTimeout(r, 600));
+            } catch { break; }
+          }
+        }
+      }
+      
+      // 3. 草稿
+      setOneClickProgress({ step: '草稿', stepIndex: 2, totalSteps, detail: '生成中...' });
       setActiveTab('draft');
-      await handleGenerateDraft('full');
-      // 3. 教師評論
+      await handleGenerateDraft('full', undefined, true);
+      await new Promise((r) => setTimeout(r, 300));
+      setOneClickProgress({ step: '草稿', stepIndex: 2, totalSteps, detail: '完成' });
+      
+      // 4. 教師評論
+      setOneClickProgress({ step: '教師評論', stepIndex: 3, totalSteps, detail: '生成中...' });
       setActiveTab('review');
       await handleGenerateReview('full');
-      // 4. 修訂稿
+      await new Promise((r) => setTimeout(r, 300));
+      setOneClickProgress({ step: '教師評論', stepIndex: 3, totalSteps, detail: '完成' });
+      
+      // 5. 修訂稿
+      setOneClickProgress({ step: '修訂稿', stepIndex: 4, totalSteps, detail: '生成中...' });
       setActiveTab('revision');
       await handleGenerateRevision('full');
-      // 5. 人性化
+      await new Promise((r) => setTimeout(r, 300));
+      setOneClickProgress({ step: '修訂稿', stepIndex: 4, totalSteps, detail: '完成' });
+      
+      // 6. 人性化
+      setOneClickProgress({ step: '人性化', stepIndex: 5, totalSteps, detail: '生成中...' });
       setActiveTab('final');
       await handleGenerateHumanized('full');
-      alert('✅ 一鍵完成！已依序完成：大綱 → 草稿 → 教師評論 → 修訂稿 → 人性化');
+      setOneClickProgress({ step: '人性化', stepIndex: 5, totalSteps, detail: '完成' });
+      
+      alert('✅ 一鍵完成！已依序完成：大綱 → 草稿 → 教師評論 → 修訂稿 → 人性化。');
     } catch (e: any) {
       console.error('一鍵完成失敗:', e);
       alert(e?.message || '一鍵完成失敗，請稍後再試');
     } finally {
       setIsOneClickComplete(false);
+      oneClickSilentRef.current = false;
+      setOneClickProgress(null);
     }
   };
 
@@ -3083,13 +3154,14 @@ Output only the bullet point content, without any labels or numbering.`
           : undefined;
         const engineOverride = retryEngine;
 
+        let latestText = '';
         if (sectionId) {
-          await handleGenerateHumanized('section', sectionId, engineOverride);
+          latestText = (await handleGenerateHumanized('section', sectionId, engineOverride)) || '';
         } else {
           await handleGenerateHumanized('full', undefined, engineOverride);
         }
         await new Promise((r) => setTimeout(r, 1500));
-        const result = await handleAiCheck(sectionId);
+        const result = await handleAiCheck(sectionId, latestText || undefined);
         const currentPercent = result?.aiPercent ?? null;
         if (currentPercent != null && currentPercent <= targetPercent) {
           alert(`✅ 第 ${attempt} 次後通過！AI: ${currentPercent}%`);
@@ -3113,24 +3185,27 @@ Output only the bullet point content, without any labels or numbering.`
   };
 
   // ✅ AI 檢測：取得文本被判定為 AI 生成的可能性 (0-100%)，回傳 { aiPercent, text }
-  const handleAiCheck = async (sectionId?: number): Promise<{ aiPercent: number; text: string } | null> => {
+  // textOverride: 可傳入文本以避免讀取過期 state（重試人性化後立即檢測時使用）
+  const handleAiCheck = async (sectionId?: number, textOverride?: string): Promise<{ aiPercent: number; text: string } | null> => {
     const target = sectionId ?? 'full';
     setIsCheckingAI(target);
     try {
-      let text = '';
-      if (sectionId) {
-        const section = humanizedSections[sectionId];
-        if (!section) return null;
-        text = form.language === '英文' ? (section.en || section.zh || '') : (section.zh || section.en || '');
-      } else {
-        text = outlinePoints
-          .filter(p => humanizedSections[p.id])
-          .map(p => {
-            const s = humanizedSections[p.id];
-            return s ? (form.language === '英文' ? (s.en || s.zh || '') : (s.zh || s.en || '')) : '';
-          })
-          .filter(Boolean)
-          .join('\n\n');
+      let text = textOverride ?? '';
+      if (!text) {
+        if (sectionId) {
+          const section = humanizedSections[sectionId];
+          if (!section) return null;
+          text = form.language === '英文' ? (section.en || section.zh || '') : (section.zh || section.en || '');
+        } else {
+          text = outlinePoints
+            .filter(p => humanizedSections[p.id])
+            .map(p => {
+              const s = humanizedSections[p.id];
+              return s ? (form.language === '英文' ? (s.en || s.zh || '') : (s.zh || s.en || '')) : '';
+            })
+            .filter(Boolean)
+            .join('\n\n');
+        }
       }
       if (!text || text.trim().length < 50) {
         alert('文本過短，至少需要 50 字元才能檢測');
@@ -3189,12 +3264,13 @@ Output only the bullet point content, without any labels or numbering.`
     }
   };
 
-  // 搜尋文獻
+  // 搜尋文獻（suppressModal: 一鍵完成時不顯示結果彈窗）
   const handleSearchReferences = async (
     keyword: string,
     pointId: number,
     useAIEnhancement: boolean = false,
-    bulletKey?: string
+    bulletKey?: string,
+    suppressModal?: boolean
   ) => {
     const trimmedKeyword = keyword?.trim();
     if (!trimmedKeyword) {
@@ -3570,6 +3646,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
       
       const usedFallback = displayResults.length > 0 && displayResults.some((r: any) => !verifiedFilter(r));
 
+      if (!suppressModal) {
       if (verifiedResults.length >= targetVerifiedCount) {
         setSearchResultModal({
           show: true,
@@ -3612,9 +3689,10 @@ ${ref.year ? `年份：${ref.year}` : ''}
           ]
         });
       }
+      }
     } catch (error) {
       console.error('搜尋文獻時發生錯誤:', error);
-      setSearchResultModal({
+      if (!suppressModal) setSearchResultModal({
         show: true,
         type: 'error',
         title: '搜索失败',
@@ -7661,7 +7739,10 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                         </div>
                         
                         <p className="text-xs text-slate-400 mt-2">
-                          💡 <strong>{isUI_EN ? 'Academic Humanization Engine' : '學術人性化引擎'}</strong>：{isUI_EN ? 'Target: controlled statistical irregularity + intellectual authenticity. 0% is unrealistic — detectors measure distribution stability; we control instability.' : '目標是「控制性統計不規則 + 智識真實性」，非追求 0%（不現實）。Detector 抓的是語言分佈穩定度，我們做的是控制不穩定。'} 一鍵人性化後會自動檢測，AI%{'>'}20% 的段落會自動重試。{isUI_EN ? 'Or manually: AI Check → Auto Re-humanize / Save to DB.' : '亦可手動「🧪 AI 檢測」→「🔄 自動重新人性化」或「📥 保存到 AI 資料庫」。'}
+                          💡 <strong>{isUI_EN ? 'Academic Humanization Engine' : '學術人性化引擎'}</strong>：{isUI_EN ? 'Target: controlled statistical irregularity + intellectual authenticity. 0% is unrealistic — detectors measure distribution stability; we control instability.' : '目標是「控制性統計不規則 + 智識真實性」，非追求 0%（不現實）。Detector 抓的是語言分佈穩定度，我們做的是控制不穩定。'} 每段人性化完成後會<strong>自動顯示 AI%</strong>，AI%{'>'}20% 的段落會自動重試。{isUI_EN ? 'Or manually: AI Check → Auto Re-humanize / Save to DB.' : '亦可手動「🧪 AI 檢測」→「🔄 自動重新人性化」或「📥 保存到 AI 資料庫」。'}
+                        </p>
+                        <p className="text-xs text-amber-300/90 mt-1">
+                          📊 <strong>{isUI_EN ? 'Why AI% may be high' : 'AI% 偏高可能原因'}</strong>：{isUI_EN ? 'Repetitive sentence structure, lack of hedging, AI template phrases, overly polished symmetry. Try: switch to LLM engine, use Auto Re-humanize, or save problematic sentences to DB for future avoidance.' : '句式過於規律、缺乏 hedging、殘留 AI 模板句、過度對稱。建議：切換 LLM 引擎、使用「🔄 自動重新人性化」、或將問題句「📥 保存到 AI 資料庫」供後續避免。'}
                         </p>
                       </div>
 
@@ -7921,6 +8002,68 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
           </div>
         </div>
       </div>
+
+      {/* 一鍵完成：無文獻確認 Modal */}
+      {oneClickRefConfirmOpen && (
+        <div className="fixed inset-0 flex items-center justify-center z-50" style={{ backgroundColor: 'rgba(0, 0, 0, 0.75)' }}>
+          <div className="rounded-xl border border-slate-500 p-6 max-w-md w-full mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()} style={{ backgroundColor: '#1e293b', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)' }}>
+            <h3 className="text-lg font-semibold text-amber-400 mb-3">⚠️ 目前無參考文獻</h3>
+            <p className="text-slate-300 text-sm mb-4">請選擇：為每段搜尋文獻，或略過直接生成草稿。</p>
+            <div className="mb-4">
+              <label className="block text-xs text-slate-400 mb-2">每段需要多少文獻？</label>
+              <select
+                value={oneClickRefConfirmRefsPer}
+                onChange={(e) => setOneClickRefConfirmRefsPer(parseInt(e.target.value) || 1)}
+                className="w-full px-3 py-2 bg-slate-600 border border-slate-500 rounded-lg text-white text-sm"
+              >
+                <option value={1}>每段 1 篇</option>
+                <option value={2}>每段 2 篇</option>
+                <option value={3}>每段 3 篇</option>
+                <option value={4}>每段 4 篇</option>
+                <option value={5}>每段 5 篇</option>
+              </select>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => {
+                  oneClickRefConfirmResolveRef.current?.({ action: 'skip' });
+                }}
+                className="px-4 py-2 bg-slate-600 text-white text-sm rounded-lg hover:bg-slate-500"
+              >
+                略過，直接生成
+              </button>
+              <button
+                onClick={() => {
+                  oneClickRefConfirmResolveRef.current?.({ action: 'search', refsPerSection: oneClickRefConfirmRefsPer });
+                }}
+                className="px-4 py-2 bg-cyan-600 text-white text-sm rounded-lg hover:bg-cyan-500"
+              >
+                為每段搜尋 {oneClickRefConfirmRefsPer} 篇
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 一鍵完成：右下角進度條 */}
+      {oneClickProgress && (
+        <div className="fixed bottom-6 right-6 z-40 rounded-xl border border-slate-500 p-4 shadow-2xl min-w-[280px]" style={{ backgroundColor: '#1e293b' }}>
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+            <span className="text-sm font-medium text-white">{oneClickProgress.step}</span>
+            <span className="text-xs text-slate-400 ml-auto">{oneClickProgress.detail}</span>
+          </div>
+          <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-cyan-500 to-emerald-500 transition-all duration-300"
+              style={{ width: `${((oneClickProgress.stepIndex + 1) / oneClickProgress.totalSteps) * 100}%` }}
+            />
+          </div>
+          <p className="text-xs text-slate-400 mt-1">
+            步驟 {oneClickProgress.stepIndex + 1} / {oneClickProgress.totalSteps}
+          </p>
+        </div>
+      )}
 
       {/* 搜索结果提示Modal */}
       {searchResultModal && searchResultModal.show && (
