@@ -1364,18 +1364,19 @@ ${enhancedKeyword}的发展方向和潜在突破`;
     }
   };
 
-  const handleGenerateDraft = async (type: 'full' | 'section', sectionId?: number, skipRefConfirm?: boolean) => {
+  const handleGenerateDraft = async (type: 'full' | 'section', sectionId?: number, skipRefConfirm?: boolean, outlineOverride?: OutlinePoint[]) => {
+    const points = outlineOverride ?? outlinePoints;
     if (!form.title.trim()) {
       alert('請先輸入論文標題');
       return;
     }
 
-    if (outlinePoints.length === 0) {
+    if (points.length === 0) {
       alert('請先創建大綱結構');
       return;
     }
 
-    const allReferences = outlinePoints.flatMap(point => point.references);
+    const allReferences = points.flatMap(point => point.references);
     if (allReferences.length === 0 && !skipRefConfirm) {
       const confirmGenerate = confirm('⚠️ 警告：您还没有添加任何参考文献。\n\n建议先添加参考文献以获得更好的生成效果。\n\n是否仍要继续生成？');
       if (!confirmGenerate) {
@@ -1400,7 +1401,7 @@ ${enhancedKeyword}的发展方向和潜在突破`;
     let timeoutId: NodeJS.Timeout | undefined = setTimeout(() => controller.abort(), 5 * 60 * 1000);
 
     try {
-      const outlineText = outlinePoints.map(point => 
+      const outlineText = points.map(point => 
         `${point.id}. ${point.title}\n${point.content}\n${point.bulletPoints && point.bulletPoints.length > 0 ? point.bulletPoints.map(detail => `• ${detail}`).join('\n') : ''}`
       ).join('\n\n');
 
@@ -1441,13 +1442,13 @@ ${referenceText}
 
 請輸出完整的文章草稿。`;
       } else if (type === 'section' && sectionId) {
-        const section = outlinePoints.find(p => p.id === sectionId);
+        const section = points.find(p => p.id === sectionId);
         if (!section) {
           alert('找不到指定的段落');
           return;
         }
 
-        const sectionWordCount = Math.ceil(wordCount / outlinePoints.length);
+        const sectionWordCount = Math.ceil(wordCount / points.length);
         
         const sectionReferences = section.references;
         const sectionReferenceText = sectionReferences.length > 0 
@@ -1484,7 +1485,7 @@ ${sectionReferenceText}
       const apiOutline = type === 'full' 
         ? outlineText 
         : (() => {
-            const section = outlinePoints.find(p => p.id === sectionId);
+            const section = points.find(p => p.id === sectionId);
             return section ? `${sectionId}. ${section.title}\n${section.content}\n${section.bulletPoints && section.bulletPoints.length > 0 ? section.bulletPoints.map(detail => `• ${detail}`).join('\n') : ''}` : '';
           })();
 
@@ -1493,7 +1494,7 @@ ${sectionReferenceText}
       const wc =
         type === 'full'
           ? Number(wordCount)
-          : (sid ? getSectionWordCount(sid, form) : Math.ceil(Number(wordCount) / outlinePoints.length));
+          : (sid ? getSectionWordCount(sid, form) : Math.ceil(Number(wordCount) / points.length));
 
       // ✅ 调试日志
       console.log('[draft client] payload', { 
@@ -1520,7 +1521,7 @@ ${sectionReferenceText}
             rubric: form.rubric,
             outline: apiOutline,
             sectionId: type === 'section' ? sectionId : undefined,
-            totalSections: type === 'section' ? outlinePoints.length : undefined,
+            totalSections: type === 'section' ? points.length : undefined,
             mode: selectedModel,
             generateBoth: true, // ✅ 同时生成中英文版本
           }),
@@ -1617,7 +1618,7 @@ ${sectionReferenceText}
         const draftText = cleanedDraft;
         const newDraftSectionsEn: Record<number, string> = {};
         
-        const sectionPatterns = outlinePoints.map((point, index) => {
+        const sectionPatterns = points.map((point, index) => {
           const titleEscaped = point.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
           const patterns = [
             new RegExp(`\\n\\s*${point.id}\\.\\s*${titleEscaped}`, 'i'),
@@ -1659,7 +1660,7 @@ ${sectionReferenceText}
         
         if (Object.keys(newDraftSectionsEn).length === 0) {
           const draftParts = draftText.split(/\n\s*\n/);
-          outlinePoints.forEach((point, index) => {
+          points.forEach((point, index) => {
             if (draftParts[index]) {
               newDraftSectionsEn[point.id] = postProcessDraftContent(draftParts[index].trim(), point.id);
             }
@@ -1668,8 +1669,8 @@ ${sectionReferenceText}
         
         if (Object.keys(newDraftSectionsEn).length === 0) {
           const sentences = draftText.split(/[。！？.!?]/).filter((s: string) => s.trim().length > 10);
-          const sentencesPerSection = Math.ceil(sentences.length / outlinePoints.length);
-          outlinePoints.forEach((point, index) => {
+          const sentencesPerSection = Math.ceil(sentences.length / points.length);
+          points.forEach((point, index) => {
             const startIndex = index * sentencesPerSection;
             const endIndex = Math.min(startIndex + sentencesPerSection, sentences.length);
             const sectionSentences = sentences.slice(startIndex, endIndex);
@@ -1704,13 +1705,13 @@ ${sectionReferenceText}
           }
           if (Object.keys(newDraftSectionsZh).length === 0) {
             const zhParts = cleanedDraftZh.split(/\n\s*\n/);
-            outlinePoints.forEach((point, index) => {
+            points.forEach((point, index) => {
               if (zhParts[index]) {
                 newDraftSectionsZh[point.id] = postProcessDraftContent(zhParts[index].trim(), point.id);
               }
             });
           }
-          outlinePoints.forEach(point => {
+          points.forEach(point => {
             const en = newDraftSectionsEn[point.id];
             const zh = newDraftSectionsZh[point.id];
             const validZh = (zh && /[\u4e00-\u9fff]/.test(zh)) ? zh : '';
@@ -3026,9 +3027,14 @@ Output only the bullet point content, without any labels or numbering.`
       }
       const outlineData = await outlineRes.json();
       syncCreditsFromResponse(outlineData);
+      const normalizedPoints = outlineData.outline
+        ? normalizeOutlinePoints(parseOutlineToPoints(outlineData.outline))
+        : [];
+      if (normalizedPoints.length === 0) {
+        throw new Error('大綱生成失敗，未取得有效內容');
+      }
       if (outlineData.outline) {
-        const parsed = parseOutlineToPoints(outlineData.outline);
-        setOutlinePoints(normalizeOutlinePoints(parsed));
+        setOutlinePoints(normalizedPoints);
         setGeneratedContent('');
         setGeneratedContentZh('');
         setDraftSections({});
@@ -3039,7 +3045,7 @@ Output only the bullet point content, without any labels or numbering.`
       setOneClickProgress({ step: '大綱', stepIndex: 0, totalSteps, detail: '完成' });
       
       // 2. 無文獻時：確認每段需要多少文獻，或略過
-      const allRefs = outlinePoints.flatMap(p => p.references);
+      const allRefs = normalizedPoints.flatMap(p => p.references);
       if (allRefs.length === 0) {
         setOneClickProgress({ step: '確認文獻', stepIndex: 1, totalSteps, detail: '等待選擇...' });
         const choice = await new Promise<{ action: 'search' | 'skip'; refsPerSection?: number }>(resolve => {
@@ -3050,7 +3056,7 @@ Output only the bullet point content, without any labels or numbering.`
         oneClickRefConfirmResolveRef.current = null;
         if (choice.action === 'search' && (choice.refsPerSection ?? 0) > 0) {
           setOneClickProgress({ step: '文獻搜尋', stepIndex: 1, totalSteps, detail: '為各段落搜尋中...' });
-          for (const point of outlinePoints) {
+          for (const point of normalizedPoints) {
             if (point.id === 1 && (point.title.includes('引言') || point.title.toLowerCase().includes('introduction'))) continue;
             try {
               const keywords = await generateEnglishKeywordsFromParagraph(point);
@@ -3062,10 +3068,10 @@ Output only the bullet point content, without any labels or numbering.`
         }
       }
       
-      // 3. 草稿
+      // 3. 草稿（傳入新大綱，避免 React state 未更新時讀到舊主題）
       setOneClickProgress({ step: '草稿', stepIndex: 2, totalSteps, detail: '生成中...' });
       setActiveTab('draft');
-      await handleGenerateDraft('full', undefined, true);
+      await handleGenerateDraft('full', undefined, true, normalizedPoints);
       await new Promise((r) => setTimeout(r, 300));
       setOneClickProgress({ step: '草稿', stepIndex: 2, totalSteps, detail: '完成' });
       
