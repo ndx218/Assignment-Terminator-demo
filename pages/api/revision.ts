@@ -78,6 +78,7 @@ export default async function handler(
 - **重要**：不要在同一段落中使用多個連接詞（如"首先、其次、此外"），每個段落只使用一個與其位置對應的連接詞
 
 【硬性規則】（必須遵守）：
+- **必須保留**草稿中已有的文內引用（如（作者，年份）或（Author, Year）），不得刪除或改動
 - 禁止編造研究、統計數據、作者姓名、年份、期刊名稱或引用文獻
 - 如果草稿/評論中沒有提供經過驗證的參考資料，寫作時不要使用作者-年份引用格式，也不要使用數值聲稱
 - 如果教師評論要求提供證據但草稿中沒有提供，修訂時應：
@@ -118,6 +119,7 @@ Requirements:
 - **IMPORTANT**: Do NOT use multiple connectors in one paragraph (e.g., "First, Second, Furthermore"). Each paragraph should use ONLY ONE connector that matches its position.
 
 Hard rules (must follow):
+- **MUST PRESERVE** all existing in-text citations from the draft (e.g. (Author, Year) or (作者，年份)); do NOT remove or alter them
 - Do NOT invent studies, statistics, author names, years, journal names, or citations
 - If the draft/review does not provide verified references, write WITHOUT author-year citations and WITHOUT numeric claims
 - If teacher feedback asks for evidence but none is provided, revise by:

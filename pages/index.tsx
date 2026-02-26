@@ -166,6 +166,8 @@ export default function HomePage() {
   const [regeneratingBullet, setRegeneratingBullet] = useState<{pointId: number, bulletIndex: number, category: 'Hook' | 'Background' | 'Thesis'} | null>(null);
   
   const oneClickSilentRef = useRef(false);
+  const oneClickAbortRef = useRef(false);
+  const oneClickUserActionResolveRef = useRef<((v: 'stop' | 'keep' | 'go' | 'finish') => void) | null>(null);
   const [oneClickProgress, setOneClickProgress] = useState<{ step: string; stepIndex: number; totalSteps: number; detail?: string } | null>(null);
   const [oneClickRefConfirmOpen, setOneClickRefConfirmOpen] = useState(false);
   const oneClickRefConfirmResolveRef = useRef<((v: { action: 'search' | 'skip'; refsPerSection?: number }) => void) | null>(null);
@@ -1731,6 +1733,7 @@ ${sectionReferenceText}
         }));
         
         if (!oneClickSilentRef.current) alert('✅ 完整草稿生成成功！所有段落内容已自动填充到相应区域。');
+        return newDraftSections;
       } else if (type === 'section' && sectionId) {
         // 清理可能的错误信息前缀
         let cleanedDraftEn = data.draft || '';
@@ -2220,10 +2223,12 @@ Output only the bullet point content, without any labels or numbering.`
   };
 
   // 生成教師評論（支持分段生成和一键生成）
-  const handleGenerateReview = async (type: 'full' | 'section' = 'full', sectionId?: number) => {
+  // draftOverride: 一鍵完成時傳入新草稿，避免讀取過期 state
+  const handleGenerateReview = async (type: 'full' | 'section' = 'full', sectionId?: number, draftOverride?: Record<number, string | { en: string; zh: string }>) => {
+    const drafts = draftOverride ?? draftSections;
     if (type === 'section' && sectionId) {
       // 分段生成：针对单个段落
-      const sectionText = draftSections[sectionId];
+      const sectionText = drafts[sectionId];
       const sectionTextStr = typeof sectionText === 'string' ? sectionText : (sectionText?.en || sectionText?.zh || '');
       if (!sectionTextStr || !sectionTextStr.trim()) {
         alert(`請先生成第${sectionId}段的草稿內容`);
@@ -2275,7 +2280,7 @@ Output only the bullet point content, without any labels or numbering.`
       // 一键生成：自动排队生成所有段落
       const sectionsToGenerate = outlinePoints
         .filter(point => {
-          const draft = draftSections[point.id];
+          const draft = drafts[point.id];
           return draft && (typeof draft === 'string' ? draft.trim() : (typeof draft === 'object' && draft.en ? (draft.en.trim() || draft.zh?.trim()) : ''));
         })
         .map(point => point.id);
@@ -2286,6 +2291,7 @@ Output only the bullet point content, without any labels or numbering.`
       }
 
       setIsGeneratingReview(true);
+      const builtReview: Record<number, string | { en: string; zh: string }> = {};
       
       try {
         // 依次生成每个段落的评论（自动排队）
@@ -2293,7 +2299,7 @@ Output only the bullet point content, without any labels or numbering.`
           const sectionId = sectionsToGenerate[i];
           setCurrentGeneratingReviewSection(sectionId);
           
-          const sectionText = draftSections[sectionId];
+          const sectionText = drafts[sectionId];
           const sectionTextStr = typeof sectionText === 'string' ? sectionText : (sectionText?.en || sectionText?.zh || '');
           // ✅ 优先生成英文评论
           const outputLanguage = 'en';
@@ -2320,17 +2326,19 @@ Output only the bullet point content, without any labels or numbering.`
           const data = await response.json();
           syncCreditsFromResponse(data);
           const feedback = data.feedback || '';
-          setReviewSections(prev => {
-            const existing = prev[sectionId];
-            const prevObj = typeof existing === 'string' ? { en: existing, zh: '' } : (existing || { en: '', zh: '' });
-            return { ...prev, [sectionId]: { ...prevObj, en: feedback } };
-          });
+          const existing = builtReview[sectionId] ?? reviewSections[sectionId];
+          const prevObj = typeof existing === 'string' ? { en: existing, zh: '' } : (existing || { en: '', zh: '' });
+          const newVal = { ...prevObj, en: feedback };
+          builtReview[sectionId] = newVal;
+          setReviewSections(prev => ({ ...prev, [sectionId]: newVal }));
         }
         
         if (!oneClickSilentRef.current) alert(`✅ 所有段落評論生成完成！（共${sectionsToGenerate.length}段）`);
+        return builtReview;
       } catch (error) {
         console.error('生成教師評論時發生錯誤:', error);
         alert(error instanceof Error ? error.message : '生成失敗，請稍後再試');
+        return {};
       } finally {
         setIsGeneratingReview(false);
         setCurrentGeneratingReviewSection(null);
@@ -2418,11 +2426,19 @@ Output only the bullet point content, without any labels or numbering.`
   };
 
   // ✅ 生成修訂稿（支持分段生成和一键生成）
-  const handleGenerateRevision = async (type: 'full' | 'section' = 'full', sectionId?: number) => {
+  // draftOverride/reviewOverride: 一鍵完成時傳入新草稿/評論，避免讀取過期 state
+  const handleGenerateRevision = async (
+    type: 'full' | 'section' = 'full',
+    sectionId?: number,
+    draftOverride?: Record<number, string | { en: string; zh: string }>,
+    reviewOverride?: Record<number, string | { en: string; zh: string }>
+  ) => {
+    const drafts = draftOverride ?? draftSections;
+    const reviews = reviewOverride ?? reviewSections;
     if (type === 'section' && sectionId) {
       // 分段生成：针对单个段落
-      const draftText = draftSections[sectionId];
-      const reviewVal = reviewSections[sectionId];
+      const draftText = drafts[sectionId];
+      const reviewVal = reviews[sectionId];
       const draftTextStr = typeof draftText === 'string' ? draftText : (draftText?.en || draftText?.zh || '');
       const reviewText = form.language === '中文' 
         ? (getReviewZh(reviewVal) || getReviewEn(reviewVal)) 
@@ -2555,8 +2571,8 @@ Output only the bullet point content, without any labels or numbering.`
       // 一键生成：自动排队生成所有段落
       const sectionsToGenerate = outlinePoints
         .filter(point => {
-          const draft = draftSections[point.id];
-          const review = reviewSections[point.id];
+          const draft = drafts[point.id];
+          const review = reviews[point.id];
           const hasDraft = draft && (typeof draft === 'string' ? draft.trim() : (typeof draft === 'object' && draft.en ? (draft.en.trim() || draft.zh?.trim()) : ''));
           return hasDraft && hasReview(review);
         })
@@ -2568,6 +2584,7 @@ Output only the bullet point content, without any labels or numbering.`
       }
 
       setIsGeneratingRevision(true);
+      const builtRevision: Record<number, { en: string; zh: string }> = {};
       
       try {
         const lang = form.language === '中文' ? 'zh' : 'en';
@@ -2577,8 +2594,8 @@ Output only the bullet point content, without any labels or numbering.`
           const sectionId = sectionsToGenerate[i];
           setCurrentGeneratingRevisionSection(sectionId);
           
-          const draftText = draftSections[sectionId];
-          const reviewVal = reviewSections[sectionId];
+          const draftText = drafts[sectionId];
+          const reviewVal = reviews[sectionId];
           const reviewText = form.language === '中文' 
             ? (getReviewZh(reviewVal) || getReviewEn(reviewVal)) 
             : (getReviewEn(reviewVal) || getReviewZh(reviewVal));
@@ -2679,12 +2696,14 @@ Output only the bullet point content, without any labels or numbering.`
             }
           }
           
+          const revVal = {
+            en: revisionEn || '',
+            zh: revisionZh || revisionEn || '',
+          };
+          builtRevision[sectionId] = revVal;
           setRevisionSections(prev => ({
             ...prev,
-            [sectionId]: {
-              en: revisionEn || '',
-              zh: revisionZh || revisionEn || '',
-            }
+            [sectionId]: revVal
           }));
           
           // 每次生成之间有短暂延迟，避免API限流
@@ -2694,9 +2713,11 @@ Output only the bullet point content, without any labels or numbering.`
         }
         
         if (!oneClickSilentRef.current) alert(`✅ 所有段落修訂稿生成完成！（共${sectionsToGenerate.length}段）`);
+        return builtRevision;
       } catch (error) {
         console.error('生成修訂稿時發生錯誤:', error);
         alert(error instanceof Error ? error.message : '生成失敗，請稍後再試');
+        return {};
       } finally {
         setIsGeneratingRevision(false);
         setCurrentGeneratingRevisionSection(null);
@@ -2706,18 +2727,23 @@ Output only the bullet point content, without any labels or numbering.`
 
   // ✅ 生成人性化文本（支持分段生成和一键生成）
   // engineOverride: 重試時可切換引擎（Undetectable.AI ↔ LLM）以降低 AI%
+  // revisionOverride/draftOverride: 一鍵完成時傳入新修訂稿/草稿，避免讀取過期 state
   // 分段生成時回傳產出的文本，供重試後立即 AI 檢測使用（避免讀取過期 state）
   const handleGenerateHumanized = async (
     type: 'full' | 'section' = 'full',
     sectionId?: number,
-    engineOverride?: 'auto' | 'undetectable' | 'llm'
+    engineOverride?: 'auto' | 'undetectable' | 'llm',
+    revisionOverride?: Record<number, { en: string; zh: string }>,
+    draftOverride?: Record<number, string | { en: string; zh: string }>
   ): Promise<string | void> => {
+    const revisions = revisionOverride ?? revisionSections;
+    const drafts = draftOverride ?? draftSections;
     if (type === 'section' && sectionId) {
       // 分段生成：针对单个段落
       // ✅ 重新人性化時優先使用「當前人性化結果」作為輸入，否則用修訂稿/草稿（否則每次都從同一來源改寫，輸出可能幾乎相同）
       const humanizedSection = humanizedSections[sectionId];
-      const revisionSection = revisionSections[sectionId];
-      const draftSection = draftSections[sectionId];
+      const revisionSection = revisions[sectionId];
+      const draftSection = drafts[sectionId];
       
       let sourceText = '';
       if (humanizedSection && (humanizedSection.en || humanizedSection.zh)) {
@@ -2812,8 +2838,8 @@ Output only the bullet point content, without any labels or numbering.`
       // 一键生成：自动排队生成所有段落
       const sectionsToGenerate = outlinePoints
         .filter(point => {
-          const revision = revisionSections[point.id];
-          const draft = draftSections[point.id];
+          const revision = revisions[point.id];
+          const draft = drafts[point.id];
           const revisionStr = typeof revision === 'string' ? revision : (revision?.en || revision?.zh || '');
           const draftStr = typeof draft === 'string' ? draft : (draft?.en || draft?.zh || '');
           const hasRevision = revisionStr.trim();
@@ -2836,13 +2862,14 @@ Output only the bullet point content, without any labels or numbering.`
           const sectionId = sectionsToGenerate[i];
           setCurrentGeneratingHumanizedSection(sectionId);
           
-          // ✅ 重新人性化時優先使用當前人性化結果，否則用修訂稿/草稿
+          // ✅ 一鍵完成時有 revisionOverride：跳過舊的人性化結果，直接用修訂稿/草稿，避免顯示舊主題
           const humanizedSection = humanizedSections[sectionId];
-          const revisionSection = revisionSections[sectionId];
-          const draftSection = draftSections[sectionId];
+          const revisionSection = revisions[sectionId];
+          const draftSection = drafts[sectionId];
+          const hasOverride = revisionOverride != null;
           
           let sourceText = '';
-          if (humanizedSection && (humanizedSection.en || humanizedSection.zh)) {
+          if (!hasOverride && humanizedSection && (humanizedSection.en || humanizedSection.zh)) {
             sourceText = form.language === '英文' ? (humanizedSection.en || humanizedSection.zh || '') : (humanizedSection.zh || humanizedSection.en || '');
           }
           if (!sourceText?.trim() && revisionSection) {
@@ -2985,6 +3012,8 @@ Output only the bullet point content, without any labels or numbering.`
   // ✅ 一鍵完成：大綱 → [文獻搜尋] → 草稿 → 教師評論 → 修訂稿 → 人性化
   const [isOneClickComplete, setIsOneClickComplete] = useState(false);
   const [oneClickRefConfirmRefsPer, setOneClickRefConfirmRefsPer] = useState(1);
+  const waitForOneClickAction = (): Promise<'stop' | 'keep' | 'go' | 'finish'> =>
+    new Promise(resolve => { oneClickUserActionResolveRef.current = resolve; });
   const handleOneClickComplete = async () => {
     if (!form.title.trim()) {
       alert('請先輸入論文標題');
@@ -2992,6 +3021,7 @@ Output only the bullet point content, without any labels or numbering.`
     }
     setIsOneClickComplete(true);
     oneClickSilentRef.current = true;
+    oneClickAbortRef.current = false;
     const totalSteps = 6;
     try {
       // 1. 一律重新生成大綱（依當前論文標題），避免使用舊主題
@@ -3043,6 +3073,9 @@ Output only the bullet point content, without any labels or numbering.`
         setHumanizedSections({});
       }
       setOneClickProgress({ step: '大綱', stepIndex: 0, totalSteps, detail: '完成' });
+      const a0 = await waitForOneClickAction();
+      if (a0 === 'stop') { oneClickAbortRef.current = true; return; }
+      if (a0 === 'keep' || a0 === 'finish') { if (a0 === 'finish') alert('✅ 已保留大綱。'); return; }
       
       // 2. 無文獻時：確認每段需要多少文獻，或略過
       const allRefs = normalizedPoints.flatMap(p => p.references);
@@ -3066,33 +3099,46 @@ Output only the bullet point content, without any labels or numbering.`
             } catch { break; }
           }
         }
+        setOneClickProgress({ step: '文獻', stepIndex: 1, totalSteps, detail: '完成' });
+        const a1 = await waitForOneClickAction();
+        if (a1 === 'stop') { oneClickAbortRef.current = true; return; }
+        if (a1 === 'keep' || a1 === 'finish') { if (a1 === 'finish') alert('✅ 已保留至文獻。'); return; }
       }
       
       // 3. 草稿（傳入新大綱，避免 React state 未更新時讀到舊主題）
       setOneClickProgress({ step: '草稿', stepIndex: 2, totalSteps, detail: '生成中...' });
       setActiveTab('draft');
-      await handleGenerateDraft('full', undefined, true, normalizedPoints);
+      const newDraft = await handleGenerateDraft('full', undefined, true, normalizedPoints);
       await new Promise((r) => setTimeout(r, 300));
       setOneClickProgress({ step: '草稿', stepIndex: 2, totalSteps, detail: '完成' });
+      const a2 = await waitForOneClickAction();
+      if (a2 === 'stop') { oneClickAbortRef.current = true; return; }
+      if (a2 === 'keep' || a2 === 'finish') { if (a2 === 'finish') alert('✅ 已保留至草稿。'); return; }
       
-      // 4. 教師評論
+      // 4. 教師評論（傳入新草稿，避免讀取過期 state）
       setOneClickProgress({ step: '教師評論', stepIndex: 3, totalSteps, detail: '生成中...' });
       setActiveTab('review');
-      await handleGenerateReview('full');
+      const newReview = await handleGenerateReview('full', undefined, newDraft);
       await new Promise((r) => setTimeout(r, 300));
       setOneClickProgress({ step: '教師評論', stepIndex: 3, totalSteps, detail: '完成' });
+      const a3 = await waitForOneClickAction();
+      if (a3 === 'stop') { oneClickAbortRef.current = true; return; }
+      if (a3 === 'keep' || a3 === 'finish') { if (a3 === 'finish') alert('✅ 已保留至教師評論。'); return; }
       
-      // 5. 修訂稿
+      // 5. 修訂稿（傳入新草稿與評論，避免讀取過期 state）
       setOneClickProgress({ step: '修訂稿', stepIndex: 4, totalSteps, detail: '生成中...' });
       setActiveTab('revision');
-      await handleGenerateRevision('full');
+      const newRevision = await handleGenerateRevision('full', undefined, newDraft, newReview);
       await new Promise((r) => setTimeout(r, 300));
       setOneClickProgress({ step: '修訂稿', stepIndex: 4, totalSteps, detail: '完成' });
+      const a4 = await waitForOneClickAction();
+      if (a4 === 'stop') { oneClickAbortRef.current = true; return; }
+      if (a4 === 'keep' || a4 === 'finish') { if (a4 === 'finish') alert('✅ 已保留至修訂稿。'); return; }
       
-      // 6. 人性化
+      // 6. 人性化（傳入新修訂稿與草稿，避免讀取過期 state；草稿作為修訂稿為空時的備用）
       setOneClickProgress({ step: '人性化', stepIndex: 5, totalSteps, detail: '生成中...' });
       setActiveTab('final');
-      await handleGenerateHumanized('full');
+      await handleGenerateHumanized('full', undefined, undefined, newRevision, newDraft);
       setOneClickProgress({ step: '人性化', stepIndex: 5, totalSteps, detail: '完成' });
       
       alert('✅ 一鍵完成！已依序完成：大綱 → 草稿 → 教師評論 → 修訂稿 → 人性化。');
@@ -4875,9 +4921,41 @@ ${ref.year ? `年份：${ref.year}` : ''}
     return validGeneratedZh ? generatedContentZh!.trim() : '';
   }, [outlinePoints, draftSections, generatedContentZh]);
 
+  const allSavedRefs = outlinePoints.flatMap(p => (p.references || []).map(r => ({ ...r, sectionId: p.id, sectionTitle: p.title })));
+  const [savedRefsPanelOpen, setSavedRefsPanelOpen] = useState(false);
+
   return (
     <div className="min-h-screen" style={{ background: 'linear-gradient(160deg, #0f172a 0%, #1e293b 35%, #2d3748 70%, #1a365d 100%)', backgroundAttachment: 'fixed' }}>
       <TopNavigation uiLang={form.uiLanguage} onUiLangChange={(v) => setForm(prev => ({ ...prev, uiLanguage: v }))} />
+      
+      {/* 右上角：已儲存文獻面板（避免後續步驟誤改） */}
+      {allSavedRefs.length > 0 && (
+        <div className="fixed top-20 right-4 z-40">
+          <button
+            onClick={() => setSavedRefsPanelOpen(!savedRefsPanelOpen)}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-700/95 border border-slate-500/50 text-amber-400 shadow-lg hover:bg-slate-600 transition-colors"
+            title={isUI_EN ? 'Saved references' : '已儲存文獻'}
+          >
+            <span>📚</span>
+            <span className="font-medium text-sm">{isUI_EN ? 'Refs' : '已儲存文獻'}</span>
+            <span className="text-xs bg-amber-500/30 px-1.5 py-0.5 rounded">{allSavedRefs.length}</span>
+          </button>
+          {savedRefsPanelOpen && (
+            <div className="absolute top-full right-0 mt-2 w-80 max-h-72 overflow-y-auto rounded-lg bg-slate-800/98 border border-slate-600 shadow-xl p-3">
+              <div className="text-xs text-slate-400 mb-2">{isUI_EN ? 'These references are used for draft. Keep them unchanged.' : '以下文獻供初稿使用，請勿在教師評論/修訂稿/人性化時改動。'}</div>
+              <ul className="space-y-2 text-sm">
+                {allSavedRefs.map((ref, i) => (
+                  <li key={ref.id || `${ref.title}-${i}`} className="text-slate-200 border-b border-slate-600/50 pb-2 last:border-0">
+                    <span className="text-amber-400/90 font-medium">§{(ref as any).sectionId}</span>
+                    <span className="text-slate-400 mx-1">·</span>
+                    <span className="line-clamp-2">{(ref as any).authors} ({(ref as any).year}). {ref.title}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
       
       <div className="pt-16 px-6">
         <div className="flex">
@@ -8053,7 +8131,7 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
         </div>
       )}
 
-      {/* 一鍵完成：右下角進度條 */}
+      {/* 一鍵完成：右下角進度條 + Stop / Keep / Go / Finish */}
       {oneClickProgress && (
         <div className="fixed bottom-6 right-6 z-40 rounded-xl border border-slate-500 p-4 shadow-2xl min-w-[280px]" style={{ backgroundColor: '#1e293b' }}>
           <div className="flex items-center gap-2 mb-2">
@@ -8070,6 +8148,12 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
           <p className="text-xs text-slate-400 mt-1">
             步驟 {oneClickProgress.stepIndex + 1} / {oneClickProgress.totalSteps}
           </p>
+          <div className="flex gap-2 mt-3 flex-wrap">
+            <button onClick={() => oneClickUserActionResolveRef.current?.('stop')} className="px-2 py-1 text-xs rounded bg-red-600/80 hover:bg-red-500 text-white">Stop</button>
+            <button onClick={() => oneClickUserActionResolveRef.current?.('keep')} className="px-2 py-1 text-xs rounded bg-amber-600/80 hover:bg-amber-500 text-white">Keep</button>
+            <button onClick={() => oneClickUserActionResolveRef.current?.('go')} className="px-2 py-1 text-xs rounded bg-emerald-600/80 hover:bg-emerald-500 text-white">Go</button>
+            <button onClick={() => oneClickUserActionResolveRef.current?.('finish')} className="px-2 py-1 text-xs rounded bg-blue-600/80 hover:bg-blue-500 text-white">Finish</button>
+          </div>
         </div>
       )}
 
