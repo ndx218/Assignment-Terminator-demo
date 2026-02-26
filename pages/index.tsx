@@ -167,7 +167,8 @@ export default function HomePage() {
   
   const oneClickSilentRef = useRef(false);
   const oneClickAbortRef = useRef(false);
-  const oneClickUserActionResolveRef = useRef<((v: 'stop' | 'keep' | 'go' | 'finish') => void) | null>(null);
+  const oneClickKeepRef = useRef(false);
+  const oneClickFinishRef = useRef(false);
   const [oneClickProgress, setOneClickProgress] = useState<{ step: string; stepIndex: number; totalSteps: number; detail?: string } | null>(null);
   const [oneClickRefConfirmOpen, setOneClickRefConfirmOpen] = useState(false);
   const oneClickRefConfirmResolveRef = useRef<((v: { action: 'search' | 'skip'; refsPerSection?: number }) => void) | null>(null);
@@ -2824,7 +2825,6 @@ Output only the bullet point content, without any labels or numbering.`
             zh: humanizedZh || humanizedEn || '',
           }
         }));
-        alert(`✅ 第${sectionId}段人性化完成！`);
         return sectionDisplayText;
       } catch (error) {
         console.error('生成人性化文本時發生錯誤:', error);
@@ -3012,8 +3012,12 @@ Output only the bullet point content, without any labels or numbering.`
   // ✅ 一鍵完成：大綱 → [文獻搜尋] → 草稿 → 教師評論 → 修訂稿 → 人性化
   const [isOneClickComplete, setIsOneClickComplete] = useState(false);
   const [oneClickRefConfirmRefsPer, setOneClickRefConfirmRefsPer] = useState(1);
-  const waitForOneClickAction = (): Promise<'stop' | 'keep' | 'go' | 'finish'> =>
-    new Promise(resolve => { oneClickUserActionResolveRef.current = resolve; });
+  const checkOneClickAbort = () => {
+    if (oneClickAbortRef.current) return true;
+    if (oneClickKeepRef.current) return true;
+    if (oneClickFinishRef.current) { alert('✅ 已保留當前結果。'); return true; }
+    return false;
+  };
   const handleOneClickComplete = async () => {
     if (!form.title.trim()) {
       alert('請先輸入論文標題');
@@ -3022,6 +3026,8 @@ Output only the bullet point content, without any labels or numbering.`
     setIsOneClickComplete(true);
     oneClickSilentRef.current = true;
     oneClickAbortRef.current = false;
+    oneClickKeepRef.current = false;
+    oneClickFinishRef.current = false;
     const totalSteps = 6;
     try {
       // 1. 一律重新生成大綱（依當前論文標題），避免使用舊主題
@@ -3073,9 +3079,8 @@ Output only the bullet point content, without any labels or numbering.`
         setHumanizedSections({});
       }
       setOneClickProgress({ step: '大綱', stepIndex: 0, totalSteps, detail: '完成' });
-      const a0 = await waitForOneClickAction();
-      if (a0 === 'stop') { oneClickAbortRef.current = true; return; }
-      if (a0 === 'keep' || a0 === 'finish') { if (a0 === 'finish') alert('✅ 已保留大綱。'); return; }
+      await new Promise((r) => setTimeout(r, 300));
+      if (checkOneClickAbort()) return;
       
       // 2. 無文獻時：確認每段需要多少文獻，或略過
       const allRefs = normalizedPoints.flatMap(p => p.references);
@@ -3100,9 +3105,8 @@ Output only the bullet point content, without any labels or numbering.`
           }
         }
         setOneClickProgress({ step: '文獻', stepIndex: 1, totalSteps, detail: '完成' });
-        const a1 = await waitForOneClickAction();
-        if (a1 === 'stop') { oneClickAbortRef.current = true; return; }
-        if (a1 === 'keep' || a1 === 'finish') { if (a1 === 'finish') alert('✅ 已保留至文獻。'); return; }
+        await new Promise((r) => setTimeout(r, 300));
+        if (checkOneClickAbort()) return;
       }
       
       // 3. 草稿（傳入新大綱，避免 React state 未更新時讀到舊主題）
@@ -3111,9 +3115,8 @@ Output only the bullet point content, without any labels or numbering.`
       const newDraft = await handleGenerateDraft('full', undefined, true, normalizedPoints);
       await new Promise((r) => setTimeout(r, 300));
       setOneClickProgress({ step: '草稿', stepIndex: 2, totalSteps, detail: '完成' });
-      const a2 = await waitForOneClickAction();
-      if (a2 === 'stop') { oneClickAbortRef.current = true; return; }
-      if (a2 === 'keep' || a2 === 'finish') { if (a2 === 'finish') alert('✅ 已保留至草稿。'); return; }
+      await new Promise((r) => setTimeout(r, 300));
+      if (checkOneClickAbort()) return;
       
       // 4. 教師評論（傳入新草稿，避免讀取過期 state）
       setOneClickProgress({ step: '教師評論', stepIndex: 3, totalSteps, detail: '生成中...' });
@@ -3121,9 +3124,8 @@ Output only the bullet point content, without any labels or numbering.`
       const newReview = await handleGenerateReview('full', undefined, newDraft);
       await new Promise((r) => setTimeout(r, 300));
       setOneClickProgress({ step: '教師評論', stepIndex: 3, totalSteps, detail: '完成' });
-      const a3 = await waitForOneClickAction();
-      if (a3 === 'stop') { oneClickAbortRef.current = true; return; }
-      if (a3 === 'keep' || a3 === 'finish') { if (a3 === 'finish') alert('✅ 已保留至教師評論。'); return; }
+      await new Promise((r) => setTimeout(r, 300));
+      if (checkOneClickAbort()) return;
       
       // 5. 修訂稿（傳入新草稿與評論，避免讀取過期 state）
       setOneClickProgress({ step: '修訂稿', stepIndex: 4, totalSteps, detail: '生成中...' });
@@ -3131,9 +3133,8 @@ Output only the bullet point content, without any labels or numbering.`
       const newRevision = await handleGenerateRevision('full', undefined, newDraft, newReview);
       await new Promise((r) => setTimeout(r, 300));
       setOneClickProgress({ step: '修訂稿', stepIndex: 4, totalSteps, detail: '完成' });
-      const a4 = await waitForOneClickAction();
-      if (a4 === 'stop') { oneClickAbortRef.current = true; return; }
-      if (a4 === 'keep' || a4 === 'finish') { if (a4 === 'finish') alert('✅ 已保留至修訂稿。'); return; }
+      await new Promise((r) => setTimeout(r, 300));
+      if (checkOneClickAbort()) return;
       
       // 6. 人性化（傳入新修訂稿與草稿，避免讀取過期 state；草稿作為修訂稿為空時的備用）
       setOneClickProgress({ step: '人性化', stepIndex: 5, totalSteps, detail: '生成中...' });
@@ -4941,7 +4942,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
             <span className="text-xs bg-amber-500/30 px-1.5 py-0.5 rounded">{allSavedRefs.length}</span>
           </button>
           {savedRefsPanelOpen && (
-            <div className="absolute top-full right-0 mt-2 w-80 max-h-72 overflow-y-auto rounded-lg bg-slate-800/98 border border-slate-600 shadow-xl p-3">
+            <div className="absolute top-full right-0 mt-2 w-80 max-h-72 overflow-y-auto rounded-lg border border-slate-500 shadow-xl p-3" style={{ backgroundColor: '#1e293b' }}>
               <div className="text-xs text-slate-400 mb-2">{isUI_EN ? 'These references are used for draft. Keep them unchanged.' : '以下文獻供初稿使用，請勿在教師評論/修訂稿/人性化時改動。'}</div>
               <ul className="space-y-2 text-sm">
                 {allSavedRefs.map((ref, i) => (
@@ -6198,7 +6199,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
                     ) || [];
                     
                     return (
-                    <div key={point.id} className="p-4 bg-slate-700 rounded-lg border border-slate-600 mb-4">
+                    <div key={point.id} className="p-4 rounded-lg border border-slate-600 mb-4" style={{ backgroundColor: '#1e293b' }}>
                       {/* 段落标题與重點視窗 */}
                       <div className="mb-4">
                         <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
@@ -6687,7 +6688,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
                             
                             {/* 參考文獻列表 - 显示该bullet point的参考文献 */}
                             {bulletReferences.length > 0 && (
-                              <div className="mt-4 p-4 rounded-xl" style={{ backgroundColor: 'rgba(51, 65, 85, 0.6)', border: '1px solid rgba(100, 116, 139, 0.4)' }}>
+                              <div className="mt-4 p-4 rounded-xl" style={{ backgroundColor: '#1e293b', border: '1px solid rgba(100, 116, 139, 0.5)' }}>
                                 <h6 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
                                   <span className="w-1 h-4 rounded-full bg-amber-400" />
                                   📚 參考文獻 ({bulletReferences.length})
@@ -8149,10 +8150,9 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
             步驟 {oneClickProgress.stepIndex + 1} / {oneClickProgress.totalSteps}
           </p>
           <div className="flex gap-2 mt-3 flex-wrap">
-            <button onClick={() => oneClickUserActionResolveRef.current?.('stop')} className="px-2 py-1 text-xs rounded bg-red-600/80 hover:bg-red-500 text-white">Stop</button>
-            <button onClick={() => oneClickUserActionResolveRef.current?.('keep')} className="px-2 py-1 text-xs rounded bg-amber-600/80 hover:bg-amber-500 text-white">Keep</button>
-            <button onClick={() => oneClickUserActionResolveRef.current?.('go')} className="px-2 py-1 text-xs rounded bg-emerald-600/80 hover:bg-emerald-500 text-white">Go</button>
-            <button onClick={() => oneClickUserActionResolveRef.current?.('finish')} className="px-2 py-1 text-xs rounded bg-blue-600/80 hover:bg-blue-500 text-white">Finish</button>
+            <button onClick={() => { oneClickAbortRef.current = true; }} className="px-2 py-1 text-xs rounded bg-red-600/80 hover:bg-red-500 text-white">Stop</button>
+            <button onClick={() => { oneClickKeepRef.current = true; }} className="px-2 py-1 text-xs rounded bg-amber-600/80 hover:bg-amber-500 text-white">Keep</button>
+            <button onClick={() => { oneClickFinishRef.current = true; }} className="px-2 py-1 text-xs rounded bg-blue-600/80 hover:bg-blue-500 text-white">Finish</button>
           </div>
         </div>
       )}
