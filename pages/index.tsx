@@ -877,7 +877,8 @@ export default function HomePage() {
   const normalizeOutlinePoints = (points: OutlinePoint[]): OutlinePoint[] =>
     points.map(point => normalizeIntroductionPoint(point));
 
-  const parseOutlineToPoints = (outlineText: string): OutlinePoint[] => {
+  const parseOutlineToPoints = (outlineText: string, language?: string): OutlinePoint[] => {
+    const isEN = language === '英文';
     const summarizeBullet = (text: string): string => {
       let cleaned = text
         .replace(/來源關鍵詞[:：].*/gi, '')
@@ -1147,7 +1148,12 @@ export default function HomePage() {
       
       // 如果最后一个点是结论（包含"結論"或"Conclusion"），且要点少于3个，补充默认要点
       if ((currentPoint.title!.includes('結論') || currentPoint.title!.includes('Conclusion')) && bulletPoints.length < 3) {
-        const defaultBullets = [
+        const defaultBullets = isEN ? [
+          'Summarize core arguments and findings',
+          'Highlight the value and impact of the research',
+          'Outline future directions and possibilities',
+          'Provide actionable recommendations'
+        ] : [
           '總結文章核心觀點與發現',
           '指出研究或分析的重要價值與影響',
           '展望未來發展方向與可能性',
@@ -1162,19 +1168,18 @@ export default function HomePage() {
         ];
       }
       
-      // 如果没有content但有bullet points，生成默认描述
+      // 如果没有content但有bullet points，生成默认描述（依 form.language）
       let content = currentPoint.content || '';
       if (!content && finalBullets.length > 0) {
-        // 根据段落标题生成默认描述
         const titleLower = currentPoint.title!.toLowerCase();
         if (titleLower.includes('引言') || titleLower.includes('introduction')) {
-          content = '本段建立主題背景與重要性，為後文鋪陳。';
+          content = isEN ? 'This section establishes context and significance for the subsequent discussion.' : '本段建立主題背景與重要性，為後文鋪陳。';
         } else if (titleLower.includes('主體') || titleLower.includes('body')) {
-          content = '本段深入探討相關主題的核心內容和重要觀點。';
+          content = isEN ? 'This section explores the core content and key arguments of the topic.' : '本段深入探討相關主題的核心內容和重要觀點。';
         } else if (titleLower.includes('結論') || titleLower.includes('conclusion')) {
-          content = '本段總結全文要點，提出結論和未來展望。';
+          content = isEN ? 'This section summarizes the main points, presents conclusions, and offers future outlook.' : '本段總結全文要點，提出結論和未來展望。';
         } else {
-          content = '本段闡述相關主題的重要內容和觀點。';
+          content = isEN ? 'This section addresses the important content and perspectives of the topic.' : '本段闡述相關主題的重要內容和觀點。';
         }
       }
       
@@ -2159,7 +2164,7 @@ Output only the bullet point content, without any labels or numbering.`
           console.log('API 返回的完整大綱:', data.outline);
           
           // 解析新生成的大綱
-          const parsedPoints = parseOutlineToPoints(data.outline);
+          const parsedPoints = parseOutlineToPoints(data.outline, form.language);
           const normalizedPoints = normalizeOutlinePoints(parsedPoints);
           console.log('解析後的所有段落:', normalizedPoints);
           
@@ -2178,7 +2183,7 @@ Output only the bullet point content, without any labels or numbering.`
                   if (!newPoint.bulletPoints || newPoint.bulletPoints.length === 0) {
                     console.warn('新段落沒有 bulletPoints，嘗試從完整大綱中提取');
                     // 重新解析，確保能正確提取
-                    const allPoints = normalizeOutlinePoints(parseOutlineToPoints(data.outline));
+                    const allPoints = normalizeOutlinePoints(parseOutlineToPoints(data.outline, form.language));
                     const extractedPoint = allPoints.find(np => np.id === pointId);
                     if (extractedPoint && extractedPoint.bulletPoints && extractedPoint.bulletPoints.length > 0) {
                       console.log('從完整大綱中提取到 bulletPoints:', extractedPoint.bulletPoints);
@@ -3064,7 +3069,7 @@ Output only the bullet point content, without any labels or numbering.`
       const outlineData = await outlineRes.json();
       syncCreditsFromResponse(outlineData);
       const normalizedPoints = outlineData.outline
-        ? normalizeOutlinePoints(parseOutlineToPoints(outlineData.outline))
+        ? normalizeOutlinePoints(parseOutlineToPoints(outlineData.outline, form.language))
         : [];
       if (normalizedPoints.length === 0) {
         throw new Error('大綱生成失敗，未取得有效內容');
@@ -5233,7 +5238,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
                           syncCreditsFromResponse(data);
                           if (data.outline) {
                             // 解析大纲为outlinePoints
-                            const parsedPoints = parseOutlineToPoints(data.outline);
+                            const parsedPoints = parseOutlineToPoints(data.outline, form.language);
                             const normalizedPoints = normalizeOutlinePoints(parsedPoints);
                             setOutlinePoints(normalizedPoints);
                             // 清空完整初稿區，避免顯示大綱內容
@@ -5443,8 +5448,8 @@ ${ref.year ? `年份：${ref.year}` : ''}
                                   p.id === point.id ? { ...p, content: e.target.value } : p
                                 ));
                               }}
-                                className="w-full px-3 py-2 bg-slate-600 border border-slate-500 rounded text-white placeholder-slate-400 focus:border-blue-400 focus:ring-1 focus:ring-blue-400 text-sm resize-y"
-                                rows={2}
+                                className="w-full px-3 py-2 bg-slate-600 border border-slate-500 rounded text-white placeholder-slate-400 focus:border-blue-400 focus:ring-1 focus:ring-blue-400 text-sm resize-y min-h-[140px]"
+                                rows={6}
                                 placeholder={t.egPlaceholder}
                               />
                             </div>

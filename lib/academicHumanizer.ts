@@ -45,14 +45,44 @@ const AI_TEMPLATE_REPLACEMENTS: [RegExp | string, string][] = [
 /**
  * 移除 AI 模板句，確保人性化前後皆有清理（Undetectable.AI 不依賴 prompt）。
  * 對 Undetectable.AI 與 LLM 皆適用。
+ * ✅ 只壓縮空格/Tab，不碰換行，避免段落分隔消失、結構被破壞
  */
 export function stripAiTemplatePhrases(text: string): string {
   if (!text || !text.trim()) return text;
-  let out = text;
+  let out = text.replace(/\r\n/g, '\n'); // 先統一換行
   for (const [pattern, replacement] of AI_TEMPLATE_REPLACEMENTS) {
-    out = out.replace(pattern, replacement);
+    out = out.replace(pattern as RegExp, replacement);
   }
-  return out.replace(/\s{2,}/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+  // ✅ 只壓縮「空格/Tab」，不碰換行
+  out = out.replace(/[ \t]{2,}/g, ' ');
+  // ✅ 段落空行最多保留兩行
+  out = out.replace(/\n{3,}/g, '\n\n');
+  return out.trim();
+}
+
+const PROTECT_OPEN = '⟦⟦';
+const PROTECT_CLOSE = '⟧⟧';
+
+/** 保護標題、引用、佔位符，避免 LLM 改動 */
+export function protectAcademicTokens(text: string): string {
+  let out = text;
+  // ✅ 保護標題行：1. Introduction / 2. Body Paragraph...
+  out = out.replace(/^\s*\d+\.\s.*$/gm, (m) => `${PROTECT_OPEN}${m}${PROTECT_CLOSE}`);
+  // ✅ 保護方括號引用/佔位符：[ADD SOURCE]、[1]...
+  out = out.replace(/\[[^\]]+\]/g, (m) => `${PROTECT_OPEN}${m}${PROTECT_CLOSE}`);
+  // ✅ 保護常見括號引用 (Author, Year) 英文
+  out = out.replace(
+    /\((?:[A-Z][A-Za-z'’\-]+(?:\s*(?:&|and)\s*[A-Z][A-Za-z'’\-]+)*),\s*\d{4}[a-z]?(?:,\s*p\.?\s*\d+)?\)/g,
+    (m) => `${PROTECT_OPEN}${m}${PROTECT_CLOSE}`
+  );
+  // ✅ 保護中文引用 (作者，年份)
+  out = out.replace(/（[^（）]{1,40}，\s*\d{4}[a-z]?）/g, (m) => `${PROTECT_OPEN}${m}${PROTECT_CLOSE}`);
+  return out;
+}
+
+/** 移除保護符號 */
+export function unprotectAcademicTokens(text: string): string {
+  return text.replaceAll(PROTECT_OPEN, '').replaceAll(PROTECT_CLOSE, '');
 }
 
 /** Epistemic hedging — 每 150–200 words 插入 2–3 個 */

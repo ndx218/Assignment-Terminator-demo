@@ -4,7 +4,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { callLLM, mapMode } from '@/lib/ai';
 import { deductCredits } from '@/lib/credits';
 import { prisma } from '@/lib/prisma';
-import { stripAiTemplatePhrases } from '@/lib/academicHumanizer';
+import { stripAiTemplatePhrases, protectAcademicTokens, unprotectAcademicTokens } from '@/lib/academicHumanizer';
 
 type ResBody =
   | { result?: string; humanized?: string; resultZh?: string; humanizedZh?: string; remainingCredits?: number; error?: string; engine?: 'undetectable' | 'llm' }
@@ -147,69 +147,62 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     }
   }
 
-  // 构建人性化处理的系统提示（內建 LLM fallback）
-  const systemHumanizeZH = `你是學術人性化專家。目標：產出具有「控制性統計不規則」與「智識真實性」的文本。偵測器測量語言分佈穩定度 — 你要引入控制性不穩定。
+  // 學術人性化 system prompt（結構保護版：保留段落、標題、連接詞、引用）
+  const systemHumanizeZH = `你是學術人性化專家。
 
-核心哲學：
-- 不要模仿「人類寫作」— 模仿學術思考過程。AI 給結論；學者探索結論。
-- 0% AI 分數不現實。目標：分析深度 + 認識論謹慎 + 句式變化。
-- 高分學術寫作特徵：限制語氣、概念張力、論證不穩定性、句式變化、部分不對稱。
+目標：產出具有「控制性統計不規則」與「智識真實性」的文本，但必須保留原文結構。
 
-改寫引擎 — 依序執行：
+【不可改動（務必逐字保留）】
+1) 章節標題與編號（例如「1. Introduction」「2. Body Paragraph 1」）不可改。
+2) 章節順序不可更動。
+3) 段落分隔不可更動：不可合併段落、不可拆段落。
+4) 引用與佔位符必須原樣保留且位置不變：
+   - 方括號：[ADD SOURCE]、[1] 等
+   - 括號引用：(Author, Year) 等
+   - DOI、URL、任何參考標記
 
-1) 移除 AI 模板句：如「近年來」「本文將討論」→ 改為直接概念主張。「總而言之」「首先、其次」可保留
+【連接詞】
+- 若原文有「First/Second/Furthermore/In conclusion」等連接詞，必須保留。
+- 如需補充，只能少量補（每段最多 1 個），但不可刪除原有連接詞。
 
-2) 注入認識論限制語氣（每 150–200 字 2–3 處）：
-   「在某種程度上」「可爭議地」「或許可理解為」「似乎」「不能單純歸因於」「傾向於」「在許多方面」「未必意味著」「仍有爭議」「取決於」
+【禁止】
+- 不可杜撰來源、數據或引用。
+- 不可刪除任何引用佔位符。
 
-3) 插入概念張力（每段至少一處）：
-   「然而，此解釋可能過度簡化問題。」
-   「此主張可能誇大因果影響。」
-   「該關係仍是條件性的，而非決定性的。」
+【風格】
+- 可加入適度限制語氣（例如「可能」「在某種程度上」），但避免過量。
+- 允許適度句長變化，但不可改變原意。
+- 移除 AI 模板句（如「近年來」「本文將討論」），改為直接論述。
 
-4) 句式變化：長句（30+ 字）與短句（6–12 字）交錯，避免固定節奏
+只輸出改寫後正文，不要附加說明。`;
 
-5) 結構不對稱：打破「論點→例子→解釋→結論」的模板，可先舉例再抽象化。「首先、其次」「總而言之」等連接詞可保留
+  const systemHumanizeEN = `You are an academic humanization specialist.
 
-輸出：直接輸出改寫後文本，無額外說明。`;
+Goal: produce text with controlled statistical irregularity and intellectual authenticity, while preserving the original structure.
 
-  const systemHumanizeEN = `You are an academic humanization specialist. Your goal: produce text with controlled statistical irregularity and intellectual authenticity. Detectors measure language distribution stability — you introduce controlled instability.
+NON-NEGOTIABLE FORMAT RULES (must preserve verbatim):
+1) Keep all section headings and numbering exactly (e.g., "1. Introduction", "2. Body Paragraph 1").
+2) Keep the order of sections unchanged.
+3) Keep paragraph breaks unchanged: do NOT merge or split paragraphs.
+4) Preserve citations and placeholders exactly and in place:
+   - Square brackets: [ADD SOURCE], [1], [Smith, 2020]
+   - Parenthetical citations: (Smith, 2020)
+   - DOIs, URLs, and any reference markers.
 
-CORE PHILOSOPHY:
-- Do NOT imitate "human writing" — imitate the academic thinking process. AI gives conclusions; scholars explore them.
-- 0% AI score is unrealistic. Target: analytical depth + epistemic caution + sentence variance.
-- High-scoring academic writing has: hedging, conceptual tension, argument instability, sentence variance, partial asymmetry.
+TRANSITIONS:
+- If the input contains connectors like "First,", "Second,", "Furthermore,", "In conclusion,", keep them.
+- You may add at most 1 connector per paragraph if necessary for logic, but do not delete existing ones.
 
-REWRITE ENGINE — Apply these steps:
+FORBIDDEN:
+- Do not invent sources, statistics, or citations.
+- Do not remove any citation placeholders.
 
-1) REMOVE AI TEMPLATE INDICATORS. Replace with direct conceptual claims:
-   BAN: "In recent years", "This essay will discuss", "There has been growing concern", "Since the dawn of time"
-   OK: "In conclusion", "Firstly/Secondly" — these are acceptable academic connectors
-   USE: Direct analytical framing where possible, but connectors like In conclusion/Firstly/Secondly are fine
+STYLE:
+- Use measured academic hedging when appropriate (e.g., "may", "appears to", "is contingent upon") without overusing it.
+- Moderate sentence-length variation is allowed, but meaning must remain intact.
+- Remove AI template phrases ("In recent years", "This essay will discuss") and replace with direct claims.
 
-2) INJECT EPISTEMIC HEDGING (2–3 per 150–200 words):
-   "to some extent", "arguably", "may be interpreted as", "appears to", "cannot be reduced to", "tends to", "in many respects", "does not necessarily imply", "remains subject to debate", "is contingent upon"
-
-3) INSERT CONCEPTUAL TENSION (at least one per major section):
-   "However, this interpretation may oversimplify the issue."
-   "Such a claim risks overstating causal influence."
-   "The relationship remains conditional rather than deterministic."
-   "This assumption deserves closer scrutiny."
-   "The explanation is necessarily partial."
-
-4) SENTENCE VARIANCE (critical for burstiness):
-   - Include complex sentences exceeding 30 words
-   - Follow with concise analytical emphasis (6–12 words): "The claim is limited.", "Context matters.", "The outcome is conditional."
-   - Avoid consistent rhythmic patterns
-
-5) STRUCTURAL ASYMMETRY:
-   Break AI's Point→Example→Explanation→Conclusion pattern. Try: example before abstraction, question before claim, counter-example before thesis.
-
-6) CONDITIONAL FRAMING: "only under certain conditions", "within specific institutional contexts", "depending on historical contingencies"
-
-7) AVOID: hyper-polished symmetry, overly generic phrasing. "Firstly", "Secondly", "In conclusion" are acceptable. Allow minor rhetorical asymmetry.
-
-Output: Directly output the rewritten text. No explanations or annotations.`;
+Output ONLY the rewritten text. No commentary.`;
 
   const system = lang === 'zh' ? systemHumanizeZH : systemHumanizeEN;
 
@@ -247,10 +240,16 @@ Output: Directly output the rewritten text. No explanations or annotations.`;
       : '\n\n【CRITICAL】This is RE-HUMANIZATION. You MUST make SUBSTANTIAL changes: rewrite sentences, alter structure, add hedging. Do NOT return nearly identical text. Output must be visibly different from the input.')
     : '';
 
+  // ✅ 保護標題、引用、佔位符，避免 LLM 改動
+  const protectedInput = protectAcademicTokens(inputText);
+  const protectHint = lang === 'zh'
+    ? '\n\n【重要】⟦⟦...⟧⟧ 內文字不可修改、不可移動，必須逐字保留。'
+    : '\n\nCRITICAL: Do not modify or move any text inside ⟦⟦ ... ⟧⟧. Keep it verbatim.';
+
   // 构建用户提示
   const userPrompt = lang === 'zh'
-    ? `請依學術人性化引擎規則改寫以下文本。目標：控制性統計不規則 + 智識真實性（非追求 0%）。保持論點與語意一致。嚴禁使用「近年來」「本文將」「本文認為」等模板句。${lengthInstruction}${avoidPatterns}${rehumanizeHint}\n\n【原文】\n${inputText}`
-    : `Rewrite the following text using the academic humanization engine rules. Target: controlled statistical irregularity + intellectual authenticity (not 0%). Preserve arguments and meaning. NEVER use "In recent years/times", "This essay will/posits", "This paper aims to/posits".${lengthInstruction}${avoidPatterns}${rehumanizeHint}\n\n【Original】\n${inputText}`;
+    ? `請依學術人性化規則改寫以下文本。保留結構、連接詞與引用。${lengthInstruction}${avoidPatterns}${rehumanizeHint}${protectHint}\n\n【原文】\n${protectedInput}`
+    : `Rewrite the following text under the rules above. Preserve structure, connectors, and citations.${lengthInstruction}${avoidPatterns}${rehumanizeHint}${protectHint}\n\n【Original】\n${protectedInput}`;
 
   try {
     const llmOpts = mapMode('review', mode);
@@ -267,7 +266,8 @@ Output: Directly output the rewritten text. No explanations or annotations.`;
       }
     );
 
-    let result = stripAiTemplatePhrases(humanized || '') || (lang === 'zh' ? '⚠️ 人性化處理失敗' : '⚠️ Humanization failed');
+    let result = unprotectAcademicTokens(humanized || '');
+    result = stripAiTemplatePhrases(result) || (lang === 'zh' ? '⚠️ 人性化處理失敗' : '⚠️ Humanization failed');
     
     let resultZh: string | undefined;
     
@@ -322,7 +322,8 @@ Output: Directly output the rewritten text. No explanations or annotations.`;
             referer: process.env.NEXT_PUBLIC_APP_URL,
           }
         );
-        const result2 = stripAiTemplatePhrases(humanized2 || '') || (lang === 'zh' ? '⚠️ 人性化處理失敗' : '⚠️ Humanization failed');
+        let result2 = unprotectAcademicTokens(humanized2 || '');
+        result2 = stripAiTemplatePhrases(result2) || (lang === 'zh' ? '⚠️ 人性化處理失敗' : '⚠️ Humanization failed');
         return res.status(200).json({
           result: result2,
           humanized: result2,
