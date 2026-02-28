@@ -7,7 +7,7 @@ import { prisma } from '@/lib/prisma';
 import { stripAiTemplatePhrases, protectAcademicTokens, unprotectAcademicTokens } from '@/lib/academicHumanizer';
 
 type ResBody =
-  | { result?: string; humanized?: string; resultZh?: string; humanizedZh?: string; remainingCredits?: number; error?: string; engine?: 'undetectable' | 'llm' }
+  | { result?: string; humanized?: string; resultZh?: string; humanizedZh?: string; resultEn?: string; remainingCredits?: number; error?: string; engine?: 'undetectable' | 'llm' }
   | { hasUndetectable: boolean; engines: string[] };
 
 function detectLang(text: string): 'zh' | 'en' {
