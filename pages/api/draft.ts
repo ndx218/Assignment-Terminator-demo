@@ -645,34 +645,19 @@ export default async function handler(
       
       let draftZh: string | undefined;
       
-      // 如果要求同时生成中文版本，且当前是英文版本，则生成中文翻译
+      // 如果要求同时生成中文版本，且当前是英文版本，则使用翻译 API（确保与英文初稿一致）
       if (generateBoth && !isZH && text) {
         try {
-          const systemZh = `你是嚴謹的學術寫作助手。只輸出內容本身，不要任何說明或提示。`;
-          const userPromptZh = buildPrompt(
-            stripCiphertextEverywhere(title),
-            stripCiphertextEverywhere(outline),
-            tone,
-            '中文',
-            effectiveSpec,
-            stripCiphertextEverywhere(refLines),
-            stripCiphertextEverywhere(reference)
-          );
-          
-          draftZh = await callLLM(
-            [
-              { role: 'system', content: systemZh },
-              { role: 'user', content: userPromptZh },
-            ],
-            {
-              ...llmOpts,
-              title: process.env.OPENROUTER_TITLE ?? 'Assignment Terminator',
-              referer: process.env.OPENROUTER_REFERER ?? process.env.NEXT_PUBLIC_APP_URL,
-            }
-          ) || '';
+          const base = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+          const tr = await fetch(`${base}/api/translate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text, targetLang: 'zh' }),
+          });
+          const trData = await tr.json();
+          if (tr.ok && trData?.translated?.trim()) draftZh = trData.translated;
         } catch (err) {
-          console.error('[draft zh generation failed]', err);
-          // 如果中文生成失败，继续返回英文版本
+          console.error('[draft zh translate failed]', err);
         }
       }
       

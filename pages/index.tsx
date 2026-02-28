@@ -2807,17 +2807,22 @@ Output only the bullet point content, without any labels or numbering.`
         let humanizedZh = '';
         
         if (data.result) {
-          if (typeof data.result === 'string') {
-            humanizedEn = data.result;
-            humanizedZh = data.resultZh || '';
-          } else if (typeof data.result === 'object') {
-            humanizedEn = data.result.en || '';
-            humanizedZh = data.result.zh || '';
+            if (typeof data.result === 'string') {
+              humanizedEn = data.result;
+              humanizedZh = data.resultZh || '';
+            } else if (typeof data.result === 'object') {
+              humanizedEn = data.result.en || '';
+              humanizedZh = data.result.zh || '';
+            }
+          } else {
+            humanizedEn = data.humanized || '';
+            humanizedZh = data.humanizedZh || '';
           }
-        } else {
-          humanizedEn = data.humanized || '';
-          humanizedZh = data.humanizedZh || '';
-        }
+          // ✅ 中文人性化時：result=中文，resultEn=英文翻譯
+          if (form.language === '中文' && data.resultEn) {
+            humanizedZh = data.result;
+            humanizedEn = data.resultEn;
+          }
         // ✅ 若 LLM 回傳整篇文章，僅擷取此段內容
         humanizedEn = extractSingleSection(humanizedEn, sectionId, outlinePoints) || humanizedEn;
         humanizedZh = extractSingleSection(humanizedZh, sectionId, outlinePoints) || humanizedZh;
@@ -2940,6 +2945,11 @@ Output only the bullet point content, without any labels or numbering.`
           } else {
             humanizedEn = data.humanized || '';
             humanizedZh = data.humanizedZh || '';
+          }
+          // ✅ 中文人性化時：result=中文，resultEn=英文翻譯
+          if (form.language === '中文' && data.resultEn) {
+            humanizedZh = data.result;
+            humanizedEn = data.resultEn;
           }
           // ✅ 若 LLM 回傳整篇文章，僅擷取此段內容
           humanizedEn = extractSingleSection(humanizedEn, sectionId, outlinePoints) || humanizedEn;

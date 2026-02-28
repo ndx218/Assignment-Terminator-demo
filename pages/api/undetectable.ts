@@ -112,6 +112,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       let result = await humanizeViaUndetectableAI(inputText, udApiKey, lang);
       result = stripAiTemplatePhrases(result); // 後處理：Undetectable.AI 可能保留模板句
       let resultZh: string | undefined;
+      let resultEn: string | undefined;
       if (generateBoth && lang === 'en' && result) {
         try {
           const base = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
@@ -124,11 +125,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           if (tr.ok && trData?.translated?.trim()) resultZh = trData.translated;
         } catch (_) {}
       }
+      if (generateBoth && lang === 'zh' && result) {
+        try {
+          const base = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+          const tr = await fetch(`${base}/api/translate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: result, targetLang: 'en' }),
+          });
+          const trData = await tr.json();
+          if (tr.ok && trData?.translated?.trim()) resultEn = trData.translated;
+        } catch (_) {}
+      }
       return res.status(200).json({
         result,
         humanized: result,
         resultZh: resultZh,
         humanizedZh: resultZh,
+        resultEn: resultEn,
         remainingCredits: deduct.remainingCredits,
         engine: 'undetectable',
       });
@@ -270,35 +284,46 @@ Output ONLY the rewritten text. No commentary.`;
     result = stripAiTemplatePhrases(result) || (lang === 'zh' ? '⚠️ 人性化處理失敗' : '⚠️ Humanization failed');
     
     let resultZh: string | undefined;
+    let resultEn: string | undefined;
     
-    // 如果要求同时生成中文版本，且当前是英文版本，则生成中文翻译
+    // 英文人性化 → 翻譯成中文
     if (generateBoth && lang === 'en' && result) {
       try {
-        const systemZh = systemHumanizeZH;
-        const userPromptZh = `請對以下文本進行人性化處理，使其更難被 AI 偵測，但保持內容與語意一致：\n\n${result}`;
-        
-        resultZh = await callLLM(
-          [
-            { role: 'system', content: systemZh },
-            { role: 'user', content: userPromptZh },
-          ],
-          {
-            ...llmOpts,
-            title: process.env.OPENROUTER_TITLE ?? 'Assignment Terminator',
-            referer: process.env.OPENROUTER_REFERER ?? process.env.NEXT_PUBLIC_APP_URL,
-          }
-        ) || '';
+        const base = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+        const tr = await fetch(`${base}/api/translate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: result, targetLang: 'zh' }),
+        });
+        const trData = await tr.json();
+        if (tr.ok && trData?.translated?.trim()) resultZh = trData.translated;
       } catch (err) {
-        console.error('[humanization zh generation failed]', err);
-        // 如果中文生成失败，继续返回英文版本
+        console.error('[humanization zh translate failed]', err);
+      }
+    }
+    
+    // 中文人性化 → 翻譯成英文
+    if (generateBoth && lang === 'zh' && result) {
+      try {
+        const base = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+        const tr = await fetch(`${base}/api/translate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: result, targetLang: 'en' }),
+        });
+        const trData = await tr.json();
+        if (tr.ok && trData?.translated?.trim()) resultEn = trData.translated;
+      } catch (err) {
+        console.error('[humanization en translate failed]', err);
       }
     }
 
     return res.status(200).json({
       result,
-      humanized: result, // 向后兼容
+      humanized: result,
       resultZh: resultZh,
       humanizedZh: resultZh,
+      resultEn: resultEn,
       remainingCredits: deduct.remainingCredits,
       engine: 'llm',
     });
