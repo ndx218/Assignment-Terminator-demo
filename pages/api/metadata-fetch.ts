@@ -34,6 +34,7 @@ export default async function handler(
       title: metadata.title,
       hasAbstract: !!metadata.abstract,
       abstractSource: metadata.abstract_source,
+      
       summaryMode: metadata.summary_mode,
       sourceTrace: metadata.source_trace
     });
@@ -45,6 +46,7 @@ export default async function handler(
       
       const llmResponse = await callLLM(
         [{ role: 'user', content: prompt }],
+        
         { 
           model: 'openai/gpt-4', 
           temperature: 0.1, 
