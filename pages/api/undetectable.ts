@@ -168,11 +168,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     : '';
 
   // 學術人性化 system prompt（結構保護版：保留段落、標題、連接詞、引用）
+  // 輸入為修訂稿內容，依此改寫即可，不可改變主題或替換主體
   const systemHumanizeZH = `你是學術人性化專家。
 
 目標：產出具有「控制性統計不規則」與「智識真實性」的文本，但必須保留原文結構。
 
-【極重要】輸入為「單一段落」。只輸出該段改寫，不可加其他段落標題（如「1. Introduction」「2. Body Paragraph 1」），不可混入其他段落內容，不可改變主題—僅改寫輸入內容。${sectionHint}
+【極重要】輸入為修訂稿的單一段落。只輸出該段改寫，不可加其他段落標題（如「1. Introduction」「2. Body Paragraph 1」），不可混入其他段落內容，不可改變主題—嚴格依輸入內容改寫，保留原文的主體與實體。${sectionHint}
 
 【不可改動（務必逐字保留）】
 1) 若輸入有段落標題則保留；若無則不可自行添加。
@@ -201,7 +202,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
 Goal: produce text with controlled statistical irregularity and intellectual authenticity, while preserving the original structure.
 
-CRITICAL: The input is exactly ONE section/paragraph. Output ONLY that section. Do NOT add section headers (e.g. "1. Introduction", "2. Body Paragraph 1"). Do NOT mix in content from other sections. Do NOT change the topic—strictly rewrite the input in place.${sectionHint}
+CRITICAL: The input is exactly ONE section/paragraph from the revision. Output ONLY that section. Do NOT add section headers (e.g. "1. Introduction", "2. Body Paragraph 1"). Do NOT mix in content from other sections. Do NOT change the topic—strictly rewrite the input in place, preserving the exact subject and entities from the input.${sectionHint}
 
 NON-NEGOTIABLE FORMAT RULES (must preserve verbatim):
 1) If the input has a section heading (e.g., "2. Body Paragraph 1"), keep it exactly. If the input has NO heading, do NOT add one.

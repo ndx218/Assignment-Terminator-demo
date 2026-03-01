@@ -3256,7 +3256,7 @@ Output only the bullet point content, without any labels or numbering.`
   // 重試時交替使用 Undetectable.AI 與 LLM，提高通過率
   const [isAutoRetrying, setIsAutoRetrying] = useState(false);
   const handleAutoRetryHumanization = async (sectionId?: number) => {
-    const maxRetries = 6; // 增加至 6 次，含交替引擎
+    const maxRetries = 1; // 僅重試 1 次
     const targetPercent = 20;
     setIsAutoRetrying(true);
     try {
@@ -3290,8 +3290,7 @@ Output only the bullet point content, without any labels or numbering.`
           await new Promise((r) => setTimeout(r, 800));
         }
       }
-      const finalResult = await handleAiCheck(sectionId);
-      alert(`已重試 ${maxRetries} 次，目前 AI: ${finalResult?.aiPercent ?? '?'}%。問題句已儲存至資料庫，後續人性化將自動避免。`);
+      // 重試用盡後靜默結束，不再彈出提示
     } catch (e: any) {
       alert(e?.message || '自動重試失敗');
     } finally {
