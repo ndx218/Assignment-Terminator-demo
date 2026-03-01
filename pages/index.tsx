@@ -2804,6 +2804,7 @@ Output only the bullet point content, without any labels or numbering.`
               wordCount: targetWordCount, // ✅ 避免人性化時縮短（尤其結論）
               humanizeEngine: engineOverride ?? humanizeEngine, // ✅ 重試時可切換引擎
               rehumanize: !!humanizedSection, // ✅ 重新人性化時要求更大幅度改動
+              sectionId, // ✅ 供 API 強調單段、避免 LLM 混入其他段落
             }),
         });
 
@@ -2931,6 +2932,7 @@ Output only the bullet point content, without any labels or numbering.`
               wordCount: targetWordCount, // ✅ 避免人性化時縮短（尤其結論）
               humanizeEngine: engineOverride ?? humanizeEngine, // ✅ 重試時可切換引擎
               rehumanize: !!humanizedSection, // ✅ 重新人性化時要求更大幅度改動
+              sectionId, // ✅ 一鍵完成時也傳入，避免 LLM 混入其他段落、誤加標題
             }),
           });
 

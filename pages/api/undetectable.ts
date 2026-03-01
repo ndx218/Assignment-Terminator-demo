@@ -4,7 +4,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { callLLM, mapMode } from '@/lib/ai';
 import { deductCredits } from '@/lib/credits';
 import { prisma } from '@/lib/prisma';
-import { stripAiTemplatePhrases, protectAcademicTokens, unprotectAcademicTokens } from '@/lib/academicHumanizer';
+import { stripAiTemplatePhrases, protectAcademicTokens, unprotectAcademicTokens, stripStraySectionHeaders } from '@/lib/academicHumanizer';
 
 type ResBody =
   | { result?: string; humanized?: string; resultZh?: string; humanizedZh?: string; resultEn?: string; remainingCredits?: number; error?: string; engine?: 'undetectable' | 'llm' }
@@ -83,6 +83,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     wordCount, // ✅ 目標字數（人性化時勿縮短）
     humanizeEngine = 'auto', // ✅ 'undetectable' | 'llm' | 'auto'：由前端選擇
     rehumanize = false, // ✅ 重新人性化：要求更大幅度改動，避免輸出幾乎相同
+    sectionId, // ✅ 可選：段落 ID，用於 prompt 強調單段、避免 LLM 混入其他段落
   } = (req.body ?? {}) as Record<string, any>;
 
   if (!text || typeof text !== 'string' || !text.trim()) {
@@ -111,6 +112,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     try {
       let result = await humanizeViaUndetectableAI(inputText, udApiKey, lang);
       result = stripAiTemplatePhrases(result); // 後處理：Undetectable.AI 可能保留模板句
+      result = stripStraySectionHeaders(result); // 移除誤加的段落標題
       let resultZh: string | undefined;
       let resultEn: string | undefined;
       if (generateBoth && lang === 'en' && result) {
@@ -161,15 +163,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     }
   }
 
+  const sectionHint = sectionId != null
+    ? (lang === 'zh' ? `\n\n【極重要】你正在改寫第 ${sectionId} 段「且僅此一段」。只輸出此段正文，不可輸出任何段落標題（如「1. Introduction」「2. Body Paragraph 1」等），不可混入、引用、或改寫其他段落的內容。` : `\n\n【CRITICAL】You are rewriting section ${sectionId} ONLY—no other sections. Output ONLY this paragraph's body. Do NOT output section headers (e.g. "1. Introduction", "2. Body Paragraph 1"). Do NOT include, reference, or rewrite content from any other section.`)
+    : '';
+
   // 學術人性化 system prompt（結構保護版：保留段落、標題、連接詞、引用）
   const systemHumanizeZH = `你是學術人性化專家。
 
 目標：產出具有「控制性統計不規則」與「智識真實性」的文本，但必須保留原文結構。
 
+【極重要】輸入為「單一段落」。只輸出該段改寫，不可加其他段落標題（如「1. Introduction」「2. Body Paragraph 1」），不可混入其他段落內容，不可改變主題—僅改寫輸入內容。${sectionHint}
+
 【不可改動（務必逐字保留）】
-1) 章節標題與編號（例如「1. Introduction」「2. Body Paragraph 1」）不可改。
-2) 章節順序不可更動。
-3) 段落分隔不可更動：不可合併段落、不可拆段落。
+1) 若輸入有段落標題則保留；若無則不可自行添加。
+2) 段落分隔不可更動：不可合併段落、不可拆段落。
 4) 引用與佔位符必須原樣保留且位置不變：
    - 方括號：[ADD SOURCE]、[1] 等
    - 括號引用：(Author, Year) 等
@@ -194,14 +201,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
 Goal: produce text with controlled statistical irregularity and intellectual authenticity, while preserving the original structure.
 
+CRITICAL: The input is exactly ONE section/paragraph. Output ONLY that section. Do NOT add section headers (e.g. "1. Introduction", "2. Body Paragraph 1"). Do NOT mix in content from other sections. Do NOT change the topic—strictly rewrite the input in place.${sectionHint}
+
 NON-NEGOTIABLE FORMAT RULES (must preserve verbatim):
-1) Keep all section headings and numbering exactly (e.g., "1. Introduction", "2. Body Paragraph 1").
-2) Keep the order of sections unchanged.
-3) Keep paragraph breaks unchanged: do NOT merge or split paragraphs.
-4) Preserve citations and placeholders exactly and in place:
+1) If the input has a section heading (e.g., "2. Body Paragraph 1"), keep it exactly. If the input has NO heading, do NOT add one.
+2) Keep paragraph breaks unchanged: do NOT merge or split paragraphs.
+3) Preserve citations and placeholders exactly and in place:
    - Square brackets: [ADD SOURCE], [1], [Smith, 2020]
    - Parenthetical citations: (Smith, 2020)
    - DOIs, URLs, and any reference markers.
+4) Do NOT invent content from other sections or change the topic.
 
 TRANSITIONS:
 - If the input contains connectors like "First,", "Second,", "Furthermore,", "In conclusion,", keep them.
@@ -282,6 +291,7 @@ Output ONLY the rewritten text. No commentary.`;
 
     let result = unprotectAcademicTokens(humanized || '');
     result = stripAiTemplatePhrases(result) || (lang === 'zh' ? '⚠️ 人性化處理失敗' : '⚠️ Humanization failed');
+    result = stripStraySectionHeaders(result);
     
     let resultZh: string | undefined;
     let resultEn: string | undefined;

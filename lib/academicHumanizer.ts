@@ -85,6 +85,18 @@ export function unprotectAcademicTokens(text: string): string {
   return text.replaceAll(PROTECT_OPEN, '').replaceAll(PROTECT_CLOSE, '');
 }
 
+/**
+ * 移除 LLM 誤加的段落標題（如 "1. Introduction"、"2. Body Paragraph 1"）。
+ * 人性化時輸入為單段，輸出不應含其他段落的標題；UI 已顯示段落標題，無需重複。
+ */
+export function stripStraySectionHeaders(text: string): string {
+  if (!text || !text.trim()) return text;
+  return text
+    .replace(/^\s*\d+\.\s+[^\n]+(\n|$)/gm, (_, m) => (m === '\n' ? '\n' : ''))
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 /** Epistemic hedging — 每 150–200 words 插入 2–3 個 */
 export const HEDGING_BANK = [
   'arguably',
