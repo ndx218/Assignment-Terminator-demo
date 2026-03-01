@@ -169,6 +169,7 @@ export default function HomePage() {
   const oneClickAbortRef = useRef(false);
   const oneClickKeepRef = useRef(false);
   const oneClickFinishRef = useRef(false);
+  const oneClickDraftRevisionRef = useRef<{ draft?: Record<number, string | { en: string; zh: string }>; revision?: Record<number, { en: string; zh: string }> } | null>(null);
   const [oneClickProgress, setOneClickProgress] = useState<{ step: string; stepIndex: number; totalSteps: number; detail?: string } | null>(null);
   const [oneClickRefConfirmOpen, setOneClickRefConfirmOpen] = useState(false);
   const oneClickRefConfirmResolveRef = useRef<((v: { action: 'search' | 'skip'; refsPerSection?: number }) => void) | null>(null);
@@ -2769,6 +2770,17 @@ Output only the bullet point content, without any labels or numbering.`
           sourceText = draftSection.en || draftSection.zh || '';
         }
       }
+      // ✅ 一鍵完成時若 state 尚未更新，用 ref 作為備用（避免 React 非同步導致讀到空 state）
+      if (!sourceText?.trim() && oneClickDraftRevisionRef.current) {
+        const ref = oneClickDraftRevisionRef.current;
+        const refRev = ref.revision?.[sectionId];
+        const refDraft = ref.draft?.[sectionId];
+        if (refRev && (refRev.en || refRev.zh)) sourceText = refRev.en || refRev.zh || '';
+        if (!sourceText?.trim() && refDraft) {
+          const d = typeof refDraft === 'string' ? refDraft : (refDraft.en || refDraft.zh || '');
+          if (d?.trim()) sourceText = d;
+        }
+      }
       
       if (!sourceText || !sourceText.trim()) {
         alert(`請先生成第${sectionId}段的修訂稿或草稿內容`);
@@ -3154,6 +3166,7 @@ Output only the bullet point content, without any labels or numbering.`
       // 6. 人性化（傳入新修訂稿與草稿，避免讀取過期 state；草稿作為修訂稿為空時的備用）
       setOneClickProgress({ step: '人性化', stepIndex: 5, totalSteps, detail: '生成中...' });
       setActiveTab('final');
+      oneClickDraftRevisionRef.current = { draft: newDraft, revision: newRevision };
       await handleGenerateHumanized('full', undefined, undefined, newRevision, newDraft);
       setOneClickProgress({ step: '人性化', stepIndex: 5, totalSteps, detail: '完成' });
       
@@ -3165,6 +3178,7 @@ Output only the bullet point content, without any labels or numbering.`
       setIsOneClickComplete(false);
       oneClickSilentRef.current = false;
       setOneClickProgress(null);
+      oneClickDraftRevisionRef.current = null;
     }
   };
 
@@ -7854,14 +7868,17 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                           const sectionHumanized = humanizedSections[point.id];
                           const sectionRevision = revisionSections[point.id];
                           const sectionDraft = draftSections[point.id];
-                          
+                          // ✅ 僅當修訂稿或草稿有實際內容時才顯示人性化按鈕，避免空物件 {en:'',zh:''} 導致點擊後彈出錯誤
+                          const revStr = typeof sectionRevision === 'string' ? sectionRevision : (sectionRevision?.en || sectionRevision?.zh || '');
+                          const draftStr = typeof sectionDraft === 'string' ? sectionDraft : (sectionDraft?.en || sectionDraft?.zh || '');
+                          const hasSectionContent = (revStr && revStr.trim()) || (draftStr && draftStr.trim());
                           
                           return (
                             <div key={point.id} className="p-4 bg-slate-700 rounded-lg border border-slate-600">
                               <div className="flex items-center justify-between mb-3">
                                 <h4 className="text-lg font-medium text-white">{point.id}. {getDisplayTitle(point, form)}</h4>
                                 <div className="flex gap-2">
-                                  {sectionRevision || sectionDraft ? (
+                                  {hasSectionContent ? (
                                     <>
                                       <button
                                         onClick={() => handleGenerateHumanized('section', point.id)}
