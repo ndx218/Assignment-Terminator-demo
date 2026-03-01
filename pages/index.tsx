@@ -154,6 +154,8 @@ export default function HomePage() {
   const [draftLang, setDraftLang] = useState<'en' | 'zh'>('en'); // ✅ 初稿显示语言
   const [revisionLang, setRevisionLang] = useState<'en' | 'zh'>('en'); // ✅ 修订稿显示语言
   const [humanizedSections, setHumanizedSections] = useState<{[key: number]: {en: string, zh: string}}>({}); // ✅ 分段人性化文本（中英文）
+  const [humanizedFullZh, setHumanizedFullZh] = useState(''); // ✅ 完整人性化中文版（等所有段落完成後才翻譯）
+  const [isTranslatingFullHumanized, setIsTranslatingFullHumanized] = useState(false); // ✅ 正在翻譯完整人性化成中文
   const [isGeneratingHumanized, setIsGeneratingHumanized] = useState(false);
   const [currentGeneratingHumanizedSection, setCurrentGeneratingHumanizedSection] = useState<number | null>(null);
   const [humanizedLang, setHumanizedLang] = useState<'en' | 'zh'>('en'); // ✅ 人性化显示语言
@@ -2928,7 +2930,8 @@ Output only the bullet point content, without any labels or numbering.`
               text: sourceText,
               mode: selectedModel,
               language: currentLang,
-              generateBoth: true,
+              // ✅ 內容語言=英文時不逐段翻譯，等所有段落完成後再一次性翻譯完整中文
+              generateBoth: currentLang === 'zh',
               wordCount: targetWordCount, // ✅ 避免人性化時縮短（尤其結論）
               humanizeEngine: engineOverride ?? humanizeEngine, // ✅ 重試時可切換引擎
               rehumanize: !!humanizedSection, // ✅ 重新人性化時要求更大幅度改動
@@ -3027,6 +3030,31 @@ Output only the bullet point content, without any labels or numbering.`
           await handleAutoRetryHumanization(sid);
         }
         
+        // ✅ 內容語言=英文時：等所有段落完成後，一次性翻譯完整人性化文章成中文
+        if (form.language === '英文' && sectionsToGenerate.length > 0) {
+          const fullEn = outlinePoints
+            .filter(p => generatedTexts[p.id])
+            .map(p => `${p.id}. ${p.title}\n\n${generatedTexts[p.id]}`)
+            .join('\n\n');
+          if (fullEn.trim().length > 50) {
+            setIsTranslatingFullHumanized(true);
+            try {
+              const trRes = await fetch('/api/translate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: fullEn, targetLang: 'zh' }),
+              });
+              const trData = await trRes.json();
+              if (trRes.ok && trData?.translated?.trim() && /[\u4e00-\u9fff]/.test(trData.translated)) {
+                setHumanizedFullZh(trData.translated);
+              }
+            } catch (_) {}
+            finally {
+              setIsTranslatingFullHumanized(false);
+            }
+          }
+        }
+        
         if (!oneClickSilentRef.current) alert(`✅ 所有段落人性化完成！（共${sectionsToGenerate.length}段）`);
       } catch (error) {
         console.error('生成人性化文本時發生錯誤:', error);
@@ -3106,6 +3134,7 @@ Output only the bullet point content, without any labels or numbering.`
         setReviewSections({});
         setRevisionSections({});
         setHumanizedSections({});
+        setHumanizedFullZh('');
       }
       setOneClickProgress({ step: '大綱', stepIndex: 0, totalSteps, detail: '完成' });
       await new Promise((r) => setTimeout(r, 300));
@@ -4342,7 +4371,8 @@ ${ref.year ? `年份：${ref.year}` : ''}
         reviewContent,         // ✅ 保存教师评论内容（向后兼容）
         reviewSections,        // ✅ 保存分段评论
         revisionSections,      // ✅ 保存分段修订稿
-        humanizedSections      // ✅ 保存分段人性化文本
+        humanizedSections,     // ✅ 保存分段人性化文本
+        humanizedFullZh        // ✅ 保存完整人性化中文版
       };
       localStorage.setItem('assignment-terminator-data', JSON.stringify(dataToSave));
       console.log('✅ 数据已保存到localStorage');
@@ -4400,6 +4430,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
           });
           setHumanizedSections(convertedHumanized);
         }
+        if (parsedData.humanizedFullZh) setHumanizedFullZh(parsedData.humanizedFullZh);
         console.log('✅ 数据已从localStorage加载');
       }
     } catch (error) {
@@ -4427,7 +4458,7 @@ ${ref.year ? `年份：${ref.year}` : ''}
     }, 1000);
 
     return () => clearTimeout(timeoutId);
-  }, [outlinePoints, searchKeywords, selectedReferences, form, activeTab, mode, selectedBulletPoint, manualInputExpanded, searchResults, draftSections, generatedContent, selectedModel, reviewContent, reviewSections, revisionSections, humanizedSections]);
+  }, [outlinePoints, searchKeywords, selectedReferences, form, activeTab, mode, selectedBulletPoint, manualInputExpanded, searchResults, draftSections, generatedContent, selectedModel, reviewContent, reviewSections, revisionSections, humanizedSections, humanizedFullZh]);
 
   // 切換手動輸入的展開/收縮狀態
   const toggleManualInput = (pointId: number) => {
@@ -8082,23 +8113,54 @@ ${ref.summary ? `英文摘要（可參考）：${String(ref.summary).slice(0, 30
                         <div className="mt-6 p-4 bg-slate-700 rounded-lg border border-slate-600">
                           <div className="flex items-center justify-between mb-3">
                             <h3 className="text-lg font-semibold text-white">📄 完整人性化 (中文)</h3>
+                            <div className="flex items-center gap-2">
+                              {isTranslatingFullHumanized && <span className="text-xs text-slate-400">翻譯中...</span>}
+                              {form.language === '英文' && !humanizedFullZh && Object.keys(humanizedSections).length > 0 && (
+                                <button
+                                  onClick={async () => {
+                                    const fullEn = outlinePoints
+                                      .filter(p => humanizedSections[p.id])
+                                      .map(p => {
+                                        const s = humanizedSections[p.id];
+                                        const txt = s ? (s.en || s.zh || '') : '';
+                                        return `${p.id}. ${p.title}\n\n${txt}`;
+                                      })
+                                      .filter(s => s.length > 20)
+                                      .join('\n\n');
+                                    if (fullEn.length < 50) return;
+                                    setIsTranslatingFullHumanized(true);
+                                    try {
+                                      const trRes = await fetch('/api/translate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: fullEn, targetLang: 'zh' }) });
+                                      const trData = await trRes.json();
+                                      if (trRes.ok && trData?.translated?.trim() && /[\u4e00-\u9fff]/.test(trData.translated)) setHumanizedFullZh(trData.translated);
+                                    } catch (_) {}
+                                    finally { setIsTranslatingFullHumanized(false); }
+                                  }}
+                                  disabled={isTranslatingFullHumanized}
+                                  className="px-2 py-1 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-50"
+                                >
+                                  翻譯成中文
+                                </button>
+                              )}
+                            </div>
                           </div>
                           <textarea
                             id="humanized-zh-scroll"
-                            value={outlinePoints
-                              .filter(point => humanizedSections[point.id])
-                              .map(point => {
-                                const section = humanizedSections[point.id];
-                                // ✅ 支持旧格式（string）和新格式（{en, zh}）
-                                if (typeof section === 'string') {
-                                  return `${point.id}. ${point.title}\n\n${section}`;
-                                }
-                                // ✅ 确保显示中文版本，如果没有中文则显示英文
-                                return `${point.id}. ${point.title}\n\n${section.zh || section.en || ''}`;
-                              })
-                              .join('\n\n')}
+                            value={
+                              // ✅ 內容語言=英文時：僅顯示完整翻譯（等所有段落完成後才生成），不顯示英文
+                              form.language === '英文'
+                                ? (humanizedFullZh || '')
+                                : outlinePoints
+                                    .filter(point => humanizedSections[point.id])
+                                    .map(point => {
+                                      const section = humanizedSections[point.id];
+                                      if (typeof section === 'string') return `${point.id}. ${point.title}\n\n${section}`;
+                                      return `${point.id}. ${point.title}\n\n${section.zh || section.en || ''}`;
+                                    })
+                                    .join('\n\n')
+                            }
                             readOnly
-                            placeholder="完整人性化文章中文內容將在這裡顯示..."
+                            placeholder={form.language === '英文' ? '所有段落完成後將自動翻譯成中文...' : '完整人性化文章中文內容將在這裡顯示...'}
                             disabled={isCurrentTabLocked}
                             onScroll={(e) => {
                               const target = e.target as HTMLTextAreaElement;
